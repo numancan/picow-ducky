@@ -10,6 +10,7 @@ add_executable(dev_hid_composite)
 target_sources(dev_hid_composite PUBLIC
         ${CMAKE_CURRENT_LIST_DIR}/src/main.c
         ${CMAKE_CURRENT_LIST_DIR}/src/usb_descriptors.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/hid_keyboard.c
         )
 enable_language( C CXX ASM )
 # Make sure TinyUSB can find tusb_config.h
