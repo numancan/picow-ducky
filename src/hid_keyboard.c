@@ -13,7 +13,7 @@ const str_conv_t str_conv_table[] = { HID_STRING_TO_KEYCODE };
 
 uint32_t blink_interval_ms = BLINK_NOT_MOUNTED;
 
-static key_buffer_t key_buff = { 0, 0, 0, 0};
+static key_buffer_t key_buff = { 0, 0, 0, 0, 0, 0 };
 
 /* Buffer must be ended with \0 */
 bool is_buffer_not_empty() { return key_buff.counter > 0; }
@@ -46,25 +46,6 @@ void keyboard_report_chr(uint8_t chr)
   tud_hid_keyboard_report(REPORT_ID_KEYBOARD, modifier, keycode);
 }
 
-// void append_buff_keycode(uint8_t keycode) 
-// {
-//   key_buffer.b[key_buffer.counter++][0] = keycode;
-// }
-
-// void append_buff_string(uint8_t* str, uint8_t len)
-// {
-//   if (len > sizeof(key_buffer.b)) return;
-
-//   for (uint8_t i = 0; i < len; i++)
-//   {
-//     key_buffer.b[i][0] = ascii_conv_table[str[len - i - 1]][1];
-//     key_buffer.counter++;
-//   }
-  
-//   // memcpy(key_buffer.b, str, len);
-//   // key_buffer.counter = len - 1;
-// }
-
 uint8_t keycode_from_string(char *str)
 {
     uint8_t len = sizeof(str_conv_table)/sizeof(str_conv_t);
@@ -86,15 +67,18 @@ int64_t delay_callback(alarm_id_t id, void *user_data) {
   return 0;
 }
 
-void handle_ducky(uint8_t *payload)
+void handle_ducky(uint8_t *payload, bool debug)
 {
-  char *pTemp;
+  /* TODO: payload uzunluğu kontrolü lazım burda veya sd carddan okununca */
+  
+  char *pTemp = NULL;
 
-  // if (payload) {
-  //   key_buff.pKeys = payload; 
-  //   key_buff.counter = strlen(key_buff.pKeys); 
-  //   return;
-  // }
+  if (debug) {
+    key_buff.pKeys = payload; 
+    key_buff.counter = strlen(key_buff.pKeys); 
+    return;
+  }
+  
   /* Splitting command from payload, pTemp pointing the command */
   pTemp = strtok(payload, " ");
 
@@ -106,12 +90,18 @@ void handle_ducky(uint8_t *payload)
 
     key_buff.keycodes[0] = keycode;
 
+    uint8_t k = keycode_from_string(pTemp);
+
     /* TODO: sarmadı */
     if (len > 5) return;
-    for (size_t i = 0; i < len; i++)
-    {
-      key_buff.keycodes[i + 1] = ascii_conv_table[pTemp[i]][1];
-    }    
+
+    if (k) key_buff.keycodes[1] = keycode;
+    else {
+      for (size_t i = 0; i < len; i++)
+      {
+        key_buff.keycodes[i + 1] = ascii_conv_table[pTemp[i]][1];
+      }    
+    }
 
     key_buff.counter++;
   }
@@ -121,23 +111,29 @@ void handle_ducky(uint8_t *payload)
 
     if (pTemp) {
       key_buff.pKeys = pTemp; 
-      key_buff.counter = strlen(key_buff.pKeys); 
+      key_buff.counter = strlen(pTemp); 
     }
   }
   else if (strcmp(pTemp, "DELAY") == 0) {
-    /* Splitting delay time */
+    /* Splitting delay time R*/
     pTemp = strtok(NULL, "");
     uint32_t delay_ms = strtol(pTemp, (char **)NULL, 10);
 
     add_alarm_in_ms(delay_ms, delay_callback, NULL, false);
     is_delayed = true;
   }
+  else if (strcmp(pTemp, "REPEAT") == 0) {
+    pTemp = strtok(NULL, "");
+
+    if (pTemp) key_buff.repeat_count = strtol(pTemp, (char **)NULL, 10);
+    return;
+  }
   else {
     printf("%s COMMAND NOT FOUND \n", pTemp);
   }
-}
 
-// static bool start = false;
+  snprintf(key_buff.last_payload, sizeof(key_buff.last_payload), "%s%s%s", payload, " ", pTemp);
+}
 
 void _send_key_report()
 {
@@ -146,20 +142,21 @@ void _send_key_report()
   if (!tud_hid_ready()) return;
 
   if (!is_key_pressed) {
+
     if (key_buff.keycodes[0]) {
       keyboard_report_keycode(key_buff.keycodes);
       tu_memclr(key_buff.keycodes, 6);
     }
     else keyboard_report_chr(*key_buff.pKeys++);
-    // keyboard_report_keycode(key_buffer.b[key_buffer.counter]);
+
     is_key_pressed = true;
   }
   else if (is_key_pressed) {
 
     // send empty key report if previously has key pressed
     _keyboard_release();
-    key_buff.counter--;
     is_key_pressed = false;
+    key_buff.counter--;
   }
 }
 
@@ -167,15 +164,21 @@ void _send_key_report()
 HID_STATUS hid_task()
 {
   // Poll every 50ms
-  const uint32_t interval_ms = 50;
+  const uint32_t interval_ms = 20;
   static uint32_t start_ms = 0;
 
   if ( board_millis() - start_ms < interval_ms) return 0;
   start_ms += interval_ms;
 
   if (is_delayed) return 0;
+
   if (is_buffer_not_empty()) {
     _send_key_report();
+    return HID_TASK_BUSY;
+  }
+  else if (key_buff.repeat_count) {
+    key_buff.repeat_count--;
+    handle_ducky(key_buff.last_payload, 0);
     return HID_TASK_BUSY;
   }
 
@@ -183,7 +186,7 @@ HID_STATUS hid_task()
 }
 
 //--------------------------------------------------------------------+
-// BLINKING TASK
+// BLINKING TASKcalıs lancalıs lan
 //--------------------------------------------------------------------+
 void led_blinking_task(void)
 {
