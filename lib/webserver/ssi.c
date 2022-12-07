@@ -4,6 +4,9 @@
 #include "lwip/def.h"
 #include "lwip/apps/httpd.h"
 #include "lwipopts.h"
+#include "sd_memory.h"
+#include "settings/settings.h"
+
 #include "ssi.h"
 
 // max length of the tags defaults to be 8 chars
@@ -17,31 +20,34 @@ const char * __not_in_flash("httpd") ssi_example_tags[] = {
 
 u16_t __time_critical_func(ssi_handler)(int iIndex, char *pcInsert, int iInsertLen) {
   size_t printed;
+  
   switch (iIndex) {
   case 0: /* "payloads" */
-    // char bufs[256];
-    // strcpy(bufs, "/payloads");
-    // scann_files(bufs, pcInsert);
+
+    sdm_read_dir("/payloads", pcInsert, iInsertLen);
 
     // printed = strlen(pcInsert);
-    printed = snprintf(pcInsert, iInsertLen, "%s", "payload.txtfirefox_pass.txt");
+    printed = snprintf(pcInsert, iInsertLen, "%s", pcInsert);
     break;
 
   case 1: /* "wssid" */
     {
-      printed = snprintf(pcInsert, iInsertLen, "<input type='text' id='wssid' name='WSSID' value='%s'>", "RIFKI");
+      printed = snprintf(pcInsert, iInsertLen, "<input type='text' id='wssid' name='WSSID' value='%s'>", S_WIFI_SSID);
+      printf("insert len:%d\n", iInsertLen);
     }
     break;
   
   case 2: /* "wpass" */
     {
-      printed = snprintf(pcInsert, iInsertLen, "<input type='text' id='wpass' name='WPASS' value='%s'>", "SA");
+      printed = snprintf(pcInsert, iInsertLen, "<input type='text' id='wpass' name='WPASS' value='%s'>", S_WIFI_PASS);
+      printf("insert len:%d\n", iInsertLen);
     }
     break;
 
   case 3: /* "pname" */
     {
-      printed = snprintf(pcInsert, iInsertLen, "<input type='text' id='pname' name='PNAME' value='%s'>", "AS");
+      printed = snprintf(pcInsert, iInsertLen, "<input type='text' id='pname' name='PNAME' value='%s'>", S_PAYLOAD_NAME);
+      printf("insert len:%d\n", iInsertLen);
     }
     break;
 

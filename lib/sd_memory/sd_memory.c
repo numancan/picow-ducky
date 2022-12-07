@@ -1,8 +1,10 @@
 #include <stdio.h>
+#include <string.h>
 
+#include "sd_memory.h"
 #include "f_util.h"
 #include "diskio.h"
-#include "sd_memory.h"
+#include "ffconf.h"
 
 /*------------------- HARDWARE CONFIGURATION OF SPI -------------------*/
 void spi0_dma_isr();
@@ -10,7 +12,7 @@ void spi0_dma_isr();
 // Hardware Configuration of SPI "objects"
 static spi_t spi = {  // One for each SPI.
         .hw_inst = spi0,  // SPI component
-        .miso_gpio = 0, // GPIO number (not pin number)
+        .miso_gpio = 4, // GPIO number (not pin number)
         .mosi_gpio = 3,
         .sck_gpio = 2,
 
@@ -28,7 +30,7 @@ static spi_t spi = {  // One for each SPI.
 static sd_card_t sd_card = {
         .pcName = "0:",           // Name used to mount device
         .spi = &spi,              // Pointer to the SPI driving this card
-        .ss_gpio = 1,             // The SPI slave select GPIO for this SD card
+        .ss_gpio = 5,             // The SPI slave select GPIO for this SD card
         .use_card_detect = true,
         .card_detect_gpio = 22,   // Card detect
         .card_detected_true = 1,  // What the GPIO read returns when a card is
@@ -47,27 +49,36 @@ spi_t *spi_get_by_num(size_t num) { return &spi; }
 /*--------------------------------------------------------------------*/
 
 static sd_card_t *pSD = &sd_card;
-FRESULT temp_fresult;
-FIL temp_fil;
+static FRESULT temp_fresult;
+static FIL temp_fil;
+static DIR temp_dir;
+static FILINFO temp_finfo;
 
 FIL *sdm_get_cur_fil() { return &temp_fil; }
 
 FRESULT sdm_mount()
 {
   temp_fresult = f_mount(&pSD->fatfs, pSD->pcName, 1);
-  if (temp_fresult != FR_OK) printf("f_mount error: %s (%d)\n", FRESULT_str(temp_fresult), temp_fresult);
+  
+  printf("sdm_mount: %s (%d)\n", FRESULT_str(temp_fresult), temp_fresult);
 
   return temp_fresult;
 }
 
-FRESULT sdm_open_read(char* filename)
+FRESULT sdm_open_read(char* fname)
 {
+  temp_fresult = f_open(&temp_fil, fname, FA_READ);
   
-  temp_fresult = f_open(&temp_fil, filename, FA_READ);
+  printf("sdm_open_read: %s (%d)\n", FRESULT_str(temp_fresult), temp_fresult);
 
-  if (temp_fresult != FR_OK) {
-      printf("ERROR: Could not open file (%d)\r\n", temp_fresult);
-  }
+  return temp_fresult;
+}
+
+FRESULT sdm_open_write(char* fname)
+{
+  temp_fresult = f_open(&temp_fil, fname, FA_WRITE | FA_CREATE_ALWAYS);
+
+  printf("sdm_open_write: %s (%d)\n", FRESULT_str(temp_fresult), temp_fresult);
 
   return temp_fresult;
 }
@@ -75,18 +86,97 @@ FRESULT sdm_open_read(char* filename)
 FRESULT sdm_close_file()
 {
   temp_fresult = f_close(&temp_fil);
+  
+  printf("sdm_close_file: %s (%d)\n", FRESULT_str(temp_fresult), temp_fresult);
 
-  if (temp_fresult != FR_OK) {
-    printf("f_close error: %s (%d)\n", FRESULT_str(temp_fresult), temp_fresult);  
-  }
-
+  memset(&temp_fil, 0, sizeof(temp_fil));
   return temp_fresult;
 }
 
 FRESULT sdm_unmount()
 {
   temp_fresult = f_mount(0, pSD->pcName, 0);
-  if (temp_fresult != FR_OK) printf("f_umount error: %s (%d)\n", FRESULT_str(temp_fresult), temp_fresult);
+ 
+  printf("sdm_unmount: %s (%d)\n", FRESULT_str(temp_fresult), temp_fresult);
 
   return temp_fresult;
+}
+
+// TODO: bu max file name 256 çok ya bunu override etmek lazım ve heap kullanıyor 
+FRESULT sdm_read_dir(TCHAR *path, uint8_t *fnames, size_t n)
+{
+  temp_fresult = f_opendir(&temp_dir, path);
+
+  snprintf(fnames, n, "");
+
+  if (temp_fresult == FR_OK) {
+    while(f_readdir(&temp_dir, &temp_finfo) == FR_OK && temp_finfo.fname[0] && n > 0) { //TODO: ya bu readdir resulttu kaydetmiyoruz?
+      strncat(fnames, temp_finfo.fname, n);
+
+      size_t fname_size = strlen(temp_finfo.fname);
+      n -= fname_size;
+      memset(temp_finfo.fname, 0, fname_size);
+    }
+
+    temp_fresult = f_closedir(&temp_dir);
+  }
+
+  printf("sdm_read_dir: %s (%d)\n", FRESULT_str(temp_fresult), temp_fresult);
+  
+  return temp_fresult;
+}
+
+// TODO: bu fonksiyon hoş değil kontrol yok belki strtok ile yapılabilir bilemedim reis
+FRESULT sdm_read_until(char *buffer, char delim, int16_t len)
+{
+  char s[2];
+  UINT br;
+  size_t i = 0;
+  
+  while (1)
+  {
+    f_read(&temp_fil, s, 1, &br);
+    if (br != 1) return FR_INT_ERR;
+
+    if (s[0] == delim) { buffer[i] = '\0'; return FR_OK;}
+
+    if (!(s[0] == '\n' || s[0] == '\r') && len-- > 0) buffer[i++] = s[0];
+  }
+
+  return FR_OK;
+}
+
+FRESULT sdm_remove_payload_file(TCHAR *filename)
+{
+  if (!sdm_check_file_ext(filename, "txt")) return FR_INVALID_PARAMETER;
+  
+  temp_fresult = f_unlink(filename);
+
+  printf("sdm_remove_payload_file: %s (%d)\n", FRESULT_str(temp_fresult), temp_fresult);
+  return temp_fresult;
+}
+
+bool sdm_check_file_ext(TCHAR *fname, const TCHAR *ext)
+{
+  if (!(*fname) && strlen(fname) > 24 ) return 0;
+  
+  char *fn_cpy = strdup(fname);
+
+  strtok(fn_cpy, ".");
+  fn_cpy = strtok(NULL, "");
+  
+  return (strcmp(fn_cpy, ext) == 0);
+}
+
+/** TODO: BUNE reis*/
+FRESULT sdm_printf(char *str)
+{
+  int ret = f_printf(&temp_fil, str);
+
+  if (ret < 0) {
+      printf("ERROR: Could not write to file (%d)\r\n", ret);
+      return 0;
+  }
+
+  return 1;
 }

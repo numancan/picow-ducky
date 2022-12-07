@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@latest/css/pico.classless.min.css">
+    <style>
+    
+    @font-face {
+        font-family: 'Minecraft';
+        src: url('./fonts/Minecraft.ttf') format('truetype');
+    }
+
+    *, :root, h2, h3, input::-moz-placeholder, ::file-selector-button {
+        font-family: Minecraft;
+        color: #20C20E;
+        /* --line-height: 1; */
+    }
+
+    h2 {
+        text-align: center;
+    }
+
+    h3 {
+        margin-bottom: 1.5rem;
+        padding-left: 0.3rem;
+        background-color: #20C20E;
+        border: #20C20E;
+        color: black;
+        /* text-align: center; */
+    }
+
+    [data-theme="dark"],
+    :root:not([data-theme="light"]), :root:not(input[type="submit"]) {
+        --background-color: #000000;
+        --primary: #20C20E;
+        --primary-hover: #20C20E;
+        --primary-focus: #20c20e2e;
+        --primary-inverse: #FFF;
+    }
+
+    input[type="submit"] {
+        --background-color: var(--form-element-background-color);
+    }
+
+    </style>
+    <title>picow_ducky</title>
+</head>
+<body>
+    <main>
+        <h2>welcome to <strong>picow_ducky</strong></h2>
+
+        <section id="trigger-payload">
+            <h3>Trigger Payload</h3>
+            <form action="/trigger" method="POST" enctype="text/plain">
+                <select id="payload-list" name="payload" required="">
+                    <!--#payloads-->
+                </select>
+                <input type="submit" id="trigger-btn" value="trigger">
+            </form>
+        </section>
+
+
+        <section id="upload">
+            <h3>Upload Ducky Script</h3>
+            <input type="file" onchange="checkExtension('txt')" id="file-input" name="filename" accept=".txt">
+            <input type="submit" id="upload-btn" value="upload">
+        </section>
+
+        <section>
+            <h3>Settings</h3>
+            <form action="/settings" method="POST" enctype="text/plain">
+                <label for="wssid">Wifi SSID</label>
+                <!--#wssid-->
+    
+                <label for="wpass">Wifi Password</label>
+                <!--#wpass-->
+    
+                <label for="pname">Payload Name</label>
+                <!--#pname-->
+
+                <input type="submit" value="submit">
+            </form>
+        </section>
+
+    </main>
+
+    <script>
+        const payloadList = document.getElementById("payload-list");
+        const uploadBtn = document.getElementById("upload-btn");
+        const fileInput = document.getElementById("file-input")
+
+        const getExtension = (filename) => filename.split(".").pop();
+
+        const checkExtension = (extension) => { if(!(getExtension(fileInput.files[0].name) === extension)) fileInput.value =  ""}
+        
+        async function  post() {
+            if (!fileInput.files[0]) return;
+
+            let res = await fetch(`http://${window.location.host}/upload`, {
+            "credentials": "omit",
+            "headers": {
+                "User-Agent": "Firefox/106.0",
+                "Accept": "text/html",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Content-Type": "text/plain",
+                "Upgrade-Insecure-Requests": "1",
+                "fname": `&${fileInput.files[0]?.name}&`
+            },
+            "referrer": `http://${window.location.host}/index.shtml`,
+            "body": fileInput.files[0],
+            "method": "POST",
+            "mode": "cors"
+            });
+            
+            return res;
+        }
+
+        document.addEventListener("DOMContentLoaded", function(event) {
+            uploadBtn.addEventListener("click", post);
+                payloadList.innerHTML = payloadList.innerHTML.split(".txt").map((e) => `<option value="${e.trim()}">${e.trim()}</option>`).join("")
+        });
+    </script>
+</body>
+</html>

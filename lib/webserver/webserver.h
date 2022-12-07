@@ -7,6 +7,6 @@ typedef enum {
   WS_ERR_WIFI_CONN
 } ws_err_t;
 
-ws_err_t ws_init();
+ws_err_t ws_init(const char *ssid, const char *pass);
 
 #endif
