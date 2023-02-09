@@ -12,7 +12,7 @@ void spi0_dma_isr();
 // Hardware Configuration of SPI "objects"
 static spi_t spi = {  // One for each SPI.
         .hw_inst = spi0,  // SPI component
-        .miso_gpio = 4, // GPIO number (not pin number)
+        .miso_gpio = 0, // GPIO number (not pin number)
         .mosi_gpio = 3,
         .sck_gpio = 2,
 
@@ -30,7 +30,7 @@ static spi_t spi = {  // One for each SPI.
 static sd_card_t sd_card = {
         .pcName = "0:",           // Name used to mount device
         .spi = &spi,              // Pointer to the SPI driving this card
-        .ss_gpio = 5,             // The SPI slave select GPIO for this SD card
+        .ss_gpio = 1,             // The SPI slave select GPIO for this SD card
         .use_card_detect = true,
         .card_detect_gpio = 22,   // Card detect
         .card_detected_true = 1,  // What the GPIO read returns when a card is
@@ -68,7 +68,12 @@ FRESULT sdm_mount()
 FRESULT sdm_open_read(char* fname)
 {
   temp_fresult = f_open(&temp_fil, fname, FA_READ);
-  
+      FRESULT fr;
+    TCHAR str[126];
+
+    fr = f_getcwd(str, 126);  /* Get current directory path */
+  printf("%s\n", fr);
+
   printf("sdm_open_read: %s (%d)\n", FRESULT_str(temp_fresult), temp_fresult);
 
   return temp_fresult;
@@ -102,7 +107,7 @@ FRESULT sdm_unmount()
   return temp_fresult;
 }
 
-// TODO: bu max file name 256 çok ya bunu override etmek lazım ve heap kullanıyor 
+/** TODO: bu max file name 256 çok ya bunu override etmek lazım ve heap kullanıyor */
 FRESULT sdm_read_dir(TCHAR *path, uint8_t *fnames, size_t n)
 {
   temp_fresult = f_opendir(&temp_dir, path);
@@ -169,14 +174,17 @@ bool sdm_check_file_ext(TCHAR *fname, const TCHAR *ext)
 }
 
 /** TODO: BUNE reis*/
-FRESULT sdm_printf(char *str)
+FRESULT sdm_write(char *str, UINT size)
 {
-  int ret = f_printf(&temp_fil, str);
+  UINT written_byte_size;
 
-  if (ret < 0) {
-      printf("ERROR: Could not write to file (%d)\r\n", ret);
-      return 0;
+  temp_fresult = f_write(&temp_fil, str, size, &written_byte_size);
+
+  if (temp_fresult != FR_OK && written_byte_size < 0) {
+      printf("ERROR: Could not write to file (%d)\r\n", written_byte_size);
+      return temp_fresult;
   }
 
-  return 1;
+  printf("SDM written byte:%lu\n", written_byte_size);
+  return FR_OK;
 }

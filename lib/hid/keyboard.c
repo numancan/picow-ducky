@@ -2,8 +2,9 @@
 #include "tusb.h"
 
 #include "keyboard.h"
+#include "tr_keycode.h"
 
-const uint8_t ascii_conv_table[128][2] =  { HID_ASCII_TO_KEYCODE };
+const uint8_t ascii_conv_table[128][2] =  { HID_ASCII_TO_KEYCODE_TR };
 const str_conv_t str_conv_table[] = { HID_STRING_TO_KEYCODE };
 
 static uint32_t interval_ms = INTERVAL_MS_DEF;

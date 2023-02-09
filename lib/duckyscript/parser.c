@@ -6,7 +6,7 @@
 
 #define MAX_CHAR_PER_LINE 256
 
-// TODO: convert inline func
+/** TODO: convert inline func */
 #define CLEAR_DL() memset(dl, 0, sizeof(ducky_line_t))
 #define CPY_COMMAND(c) snprintf(dl->command, sizeof(dl->command), "%s", c)
 #define CPY_ARGS(a) snprintf(dl->args, sizeof(dl->args), "%s", a)

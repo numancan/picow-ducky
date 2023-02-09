@@ -5,6 +5,7 @@
 #include "hw_config.h"
 
 #define sdm_gets(buf) f_gets(buf, sizeof(buf), sdm_get_cur_fil())
+#define sdm_change_dir(dir) f_chdir(dir);
 
 FIL*    sdm_get_cur_fil();
 FRESULT sdm_mount();
@@ -15,7 +16,7 @@ FRESULT sdm_close_file();
 FRESULT sdm_read_dir(TCHAR *path, uint8_t *fnames, size_t n);
 FRESULT sdm_read_until(char *buffer, char delim, int16_t len);
 FRESULT sdm_remove_payload_file(TCHAR *filename);
-FRESULT sdm_printf(char *str);
+FRESULT sdm_write(char *str, UINT size);
 
 /**
  * Check file extension.

@@ -14,18 +14,21 @@ enum {
   INVALID_POST = -1,
   POST_UPLOAD = 0,
   POST_SETTINGS,
-  POST_TRIGGER
+  POST_TRIGGER,
+  POST_DELETE
 };
 
 // DONT CHANGE ORDER
 const char const* post_uris[] = {
   "/upload",
   "/settings",
-  "/trigger"
+  "/trigger",
+  "/delete"
 };
 
 // -1 mean no geçerli post req
 static int8_t current_post_req_idx = INVALID_POST;
+static TCHAR current_fname[FILE_MAX_NAME_LEN];
 
 int8_t get_post_idx(const char *uri)
 {
@@ -37,14 +40,18 @@ int8_t get_post_idx(const char *uri)
 }
 
 // now just sigle char param
-char *get_uri_param(char *uri, const char *param)
+char *get_pname_from_uri(char *uri)
 {
   strtok(uri, "?");
   char *pTemp = strtok(NULL, "=");
 
-  if (strcmp(pTemp, param) == 0) {
+  if (strncmp(pTemp, "p", 2) == 0) {
     pTemp = strtok(NULL, "");
-    return pTemp;
+
+    if (pTemp && 
+        sdm_check_file_ext(pTemp, "txt") &&
+        strlen(pTemp) < FILE_MAX_NAME_LEN ) 
+      return pTemp;
   }
 
   return NULL;
@@ -69,26 +76,15 @@ httpd_post_begin(void *connection, const char *uri, const char *http_request,
     case POST_UPLOAD:
       if (current_connection != connection) {
         current_connection = connection;
-        snprintf(response_uri, response_uri_len, "/index.shtml");
-        // printf("req: %s, content len:%d\n", http_request, content_len);
 
         /** TODO: (char *) baya tatsız */
-        char *pTemp = get_uri_param((char *)uri, "p");
+        char *pTemp = get_pname_from_uri((char *)uri);
+        if (!pTemp) return ERR_VAL;
 
-        if (!pTemp || 
-            !sdm_check_file_ext(pTemp, "txt") ||
-            strlen(pTemp) > FILE_MAX_NAME_LEN ) 
-            return ERR_VAL;
+        sdm_change_dir("/payloads");
+        FRESULT f_res = sdm_open_write(pTemp);
+        sdm_change_dir("..");
 
-        char fn[FILE_MAX_NAME_LEN + 9];
-        snprintf(fn, sizeof(fn), "%s%s", "payloads/", pTemp);
-
-        FRESULT f_res = sdm_open_write(fn);
-
-        /* e.g. for large uploads to slow flash over a fast connection, you should
-          manually update the rx window. That way, a sender can only send a full
-          tcp window at a time. If this is required, set 'post_aut_wnd' to 0.
-          We do not need to throttle upload speed here, so: */
         *post_auto_wnd = 0;
         return f_res == FR_OK ? ERR_OK : ERR_VAL;
       }
@@ -97,16 +93,12 @@ httpd_post_begin(void *connection, const char *uri, const char *http_request,
     case POST_SETTINGS:
       if (current_connection != connection) {
         current_connection = connection;
-        snprintf(response_uri, response_uri_len, "/index.shtml");
 
-        // char fn[100];
-        // snprintf(fn, sizeof(fn), "%s", "config.txt");
         /** TODO: check settings len? with settings*/
         FRESULT f_res = sdm_open_write("settings.txt");
-
-        /** TODO: Bura kritik dosya yazılıp kapanıyor tekrar açılıp okunuyor eyvah eyvah*/
-        // post_settings_cb();
         
+        if (f_res != FR_OK) current_post_req_idx = INVALID_POST; 
+
         *post_auto_wnd = 0;
         return f_res == FR_OK ? ERR_OK : ERR_VAL;
       }
@@ -115,22 +107,33 @@ httpd_post_begin(void *connection, const char *uri, const char *http_request,
     case POST_TRIGGER:
       if (current_connection != connection) {
         current_connection = connection;
-        snprintf(response_uri, response_uri_len, "/index.shtml");
         
         /** TODO: (char *) baya tatsız */
-        char *pTemp = get_uri_param((char *)uri, "p");
+        char *pTemp = get_pname_from_uri((char *)uri);
+        if (!(*pTemp)) return ERR_VAL;
+        
+        snprintf(current_fname, sizeof(current_fname), pTemp); 
 
-        if (!pTemp || 
-            !sdm_check_file_ext(pTemp, "txt") ||
-            strlen(pTemp) > FILE_MAX_NAME_LEN ) 
-            return ERR_VAL;
-
-        post_trigger_cb(pTemp);
         *post_auto_wnd = 0;
         return ERR_OK;
       }
       break;
 
+    case POST_DELETE:
+      if (current_connection != connection) {
+        current_connection = connection;
+        // snprintf(response_uri, response_uri_len, "/index.shtml");
+
+        char *pTemp = get_pname_from_uri((char *)uri);
+        if (!(*pTemp)) return ERR_VAL;
+        
+        sdm_change_dir("/payloads");
+        sdm_remove_payload_file(pTemp);
+        sdm_change_dir("..");
+
+        *post_auto_wnd = 0;
+        return ERR_OK;
+      }
     default:
       break;
   }
@@ -138,22 +141,27 @@ httpd_post_begin(void *connection, const char *uri, const char *http_request,
   return ERR_VAL;
 }
 
+/** TODO: Bu ne*/
 char buff[1400];
 
 err_t
 httpd_post_receive_data(void *connection, struct pbuf *p)
 {
-  if (current_connection == connection && current_post_req_idx == POST_UPLOAD) {
-    
-    char *pt = (char*)pbuf_get_contiguous(p, buff, sizeof(buff), p->len, 0);
+  if (current_connection == connection && ( current_post_req_idx == POST_UPLOAD || current_post_req_idx == POST_SETTINGS) ) {
 
-    printf("buffer:\n--------\n %s\n", pt);
-    sdm_printf(pt);
+    char *pt = (char*)pbuf_get_contiguous(p, buff, sizeof(buff), p->len, 0);
+    sdm_write(pt, p->len);
+
+    printf("------POST DATA------\n");
+    pt[p->len] = '\0';
+    printf("%s\n", pt);
+    printf("---------END---------\n");
 
     pbuf_free(p);
     return ERR_OK;
   }
   
+  pbuf_free(p);
   return ERR_VAL;
 }
 
@@ -165,6 +173,7 @@ httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len
 
     sdm_close_file();
     if (current_post_req_idx == POST_SETTINGS) post_settings_cb();
+    if (current_post_req_idx == POST_TRIGGER) post_trigger_cb(current_fname);
 
     current_connection = NULL;
     valid_connection = NULL;

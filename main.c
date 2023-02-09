@@ -3,104 +3,104 @@
 
 #include "pico/stdlib.h"
 #include "bsp/board.h"
-// #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
 
 #include "lib/hid/keyboard.h"
 #include "lib/sd_memory/sd_memory.h"
 #include "lib/duckyscript/handler.h"
+#include "lib/settings/settings.h"
+#include "lib/status_led/status_led.h"
+
+#ifdef PICOW
+// #include "pico/cyw43_arch.h"
 #include "lib/webserver/webserver.h"
 #include "lib/webserver/post.h"
-#include "lib/settings/settings.h"
+#define WS_SWITCH_PIN 4
+#endif
 
 bool is_ducky_working = false;
+char next_payload[FILE_MAX_NAME_LEN + 9];
 
+void trigger_payload(char *pname)
+{
+  snprintf(next_payload, sizeof(next_payload), "payloads/%s\0", pname);
+  sdm_open_read(next_payload); /** TODO: böyle olmaz reis*/
+}
+
+#ifdef PICOW
 void post_trigger_cb(char *pname)
 {
-  printf("%s\n", pname);
+  printf(pname);
+  trigger_payload(pname);
 }
 
 void post_settings_cb()
 {
+  /** TODO: Reis böyle sıkıntı değil mi bari update olsun */
   settings_init("settings.txt");
 }
 
-void led_init()
+void switch_init()
 {
-  const uint LPIN = 6;
-  gpio_init(LPIN);
-  gpio_set_dir(LPIN, GPIO_OUT);
-  gpio_put(LPIN, 1);
+  gpio_init(WS_SWITCH_PIN);
+  gpio_set_dir(WS_SWITCH_PIN, GPIO_IN);
 }
+#endif
 
 int main(void)
 {
   stdio_init_all();
-  led_init();
 
-  if (sdm_mount() == FR_OK) {
-    settings_init("settings.txt");
-    ws_init(S_WIFI_SSID, S_WIFI_PASS);
+  multicore_launch_core1(status_led_task);
+  status_led_set_blink(SL_INT_500MS, SL_ONCE);
+
+  if (sdm_mount() != FR_OK) {
+    status_led_set_blink(SL_INT_1S, SL_ONCE);
+    while(1){};
+  }
+  settings_init("settings.txt");
+  settings_print(true);
+
+  bool is_ws_enabled = false;
+
+#ifdef PICOW
+  switch_init();
+  is_ws_enabled = gpio_get(WS_SWITCH_PIN);
+
+  if (is_ws_enabled && ws_init(S_WIFI_SSID, S_WIFI_PASS) != WS_ERR_OK) {
+    status_led_set_blink(SL_INT_2S, SL_TWICE);
+    sleep_ms(500);
+    while(1){};
+  }
+#endif
+
+  if (S_PTI || !is_ws_enabled) {
+    trigger_payload(S_PAYLOAD_NAME);
   }
 
-  // uint8_t files[256];
-  // sdm_read_dir("/payloads", files, sizeof(files));
-
-  // printf("files %s\n", files);
+  kb_init();
+  status_led_set_blink(SL_HIGH, SL_ONCE);
 
   while (1)
   {
-    tight_loop_contents();
+    /** TODO: bu belki ducky icinde olabilir ducky_task?*/
+    if (*next_payload && dh_is_ready()) {
+      status_led_set_blink(SL_INT_250MS, SL_ONCE);
+
+      ducky_line_t *dl;
+      TCHAR buf[256];
+
+      if(sdm_gets(buf)) {
+        dl = dp_parse_line(buf);
+        dh_handle_dline(dl);
+
+      } else {
+        memset(next_payload, 0, sizeof(next_payload));
+        sdm_close_file();
+        status_led_set_blink(SL_HIGH, SL_ONCE);
+      }
+    }
+
+    kb_task();
   }
 }
-
-// int main(void)
-// {
-//   stdio_init_all();
-
-//   led_init();
-//   sdm_mount();
-//   sleep_ms(500);
-
-//   ws_init();
-//   sleep_ms(1000);
-  
-//   kb_init();
-
-//   uint8_t i = 0;
-//   ducky_line_t *dl;
-//   TCHAR buf[256];
-
-//   while (1)
-//   {
-//     if (!is_ducky_working && board_button_read())  {
-//       is_ducky_working = true;
-
-//       sdm_open_read("payloads/firefox_pass.txt");
-//       // sdm_close_file();
-//       // gpio_put(BLINK_LED, !gpio_get_out_level(BLINK_LED));
-//     }
-
-//     if (is_ducky_working && dh_is_ready()) {
-
-//       // char buf1[][256] = { "STRING 123123123123123123123123123123120123456789\r\n", "DELAY 1500\r\n", "STRING 0123456789\r\n", "DELAY 500\r\n", "STRING 0123456789\r\n", "DELAY 2000\r\n", "STRING end\r\n" };
-      
-//       if(sdm_gets(buf)) {
-//       // if(i < 7) {
-//         // dl = dp_parse_line(buf1[i++]);
-//         dl = dp_parse_line(buf);
-//         dh_handle_dline(dl);
-//       }
-//       else {
-//         is_ducky_working = false;
-//         sdm_close_file();
-//         i = 0;
-//       }
-//     }
-
-//     kb_task();
-//     // led_blinking_task();
-//   }
-
-//   sdm_unmount();
-// }

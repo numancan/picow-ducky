@@ -12,21 +12,26 @@ static bool flag_finish = false;
 const char const *parameters[] = {
   "WSSID",
   "WPASS",
-  "PNAME"
+  "PNAME",
+  "PTI"
 };
 
 settings_t *const settings = &(settings_t) {
   .wifi_ssid = "SSID",
   .wifi_pass = "PASSWORD",
-  .payload_name = "hello_world.txt"};
+  .payload_name = "hello_world.txt",
+  .pti = false
+  };
 
 
-int16_t get_param()
+int16_t   get_param()
 {
   uint8_t count = count_of(parameters);
 
   char par[PAR_MAX_LEN] = "";
   flag_finish = sdm_read_until(par, '=', PAR_MAX_LEN);
+
+  if(!par[0]) return -1;
 
   for (uint8_t i = 0; i < count; i++)
   {
@@ -39,7 +44,7 @@ int16_t get_param()
   return -1;
 }
 
-void set_parameter(char *param, uint8_t len)
+void set_parameter_str(char *param, uint8_t len)
 {
   char buff[len];
 
@@ -47,9 +52,19 @@ void set_parameter(char *param, uint8_t len)
   snprintf(param, len, "%s", buff);
 }
 
+void set_parameter_bool(bool *param)
+{
+  char buff[6];
+
+  flag_finish = sdm_read_until(buff, '\n', 6);
+  
+  *param = memcmp(buff, "true", 5) == 0 ? true : false;
+}
+
 uint8_t settings_init(char *sett_path)
 {
   if (sdm_open_read(sett_path) != FR_OK) return 1;
+  /** TODO: Eğer settings file boş ise return*/
 
   bool is_finished = 0;
   
@@ -58,15 +73,19 @@ uint8_t settings_init(char *sett_path)
     switch (get_param())
     {
     case 0: /* WSSID */
-      set_parameter(settings->wifi_ssid, WSSID_MAX_NAME_LEN);
+      set_parameter_str(settings->wifi_ssid, WSSID_MAX_NAME_LEN);
       break;
 
     case 1: /* WPASS */
-      set_parameter(settings->wifi_pass, WPASS_MAX_NAME_LEN);
+      set_parameter_str(settings->wifi_pass, WPASS_MAX_NAME_LEN);
       break;
 
     case 2: /* PNAME */
-      set_parameter(settings->payload_name, FILE_MAX_NAME_LEN);
+      set_parameter_str(settings->payload_name, FILE_MAX_NAME_LEN);
+      break;
+
+    case 3: /* PTI */
+      set_parameter_bool(&settings->pti);
       break;
     
     default:
@@ -74,10 +93,19 @@ uint8_t settings_init(char *sett_path)
     }
   }
 
-  printf("%s %s %s\n", S_WIFI_SSID, S_WIFI_PASS, S_PAYLOAD_NAME);
   sdm_close_file();
 
   flag_finish = false;
 
   return 0;
+}
+
+void settings_print(bool show_pass)
+{
+  printf("#### SETTINGS ####\n");
+  printf("Wifi SSID(WSSID)    : %s\n", S_WIFI_SSID);
+  printf("Wifi PASS(WPASS)    : %s\n", show_pass ? S_WIFI_PASS : "******");
+  printf("PAYLOAD NAME(PNAME) : %s\n", S_PAYLOAD_NAME);
+  printf("PLUG TO INJECT(PTI) : %s\n", S_PTI ? "true" : "false");
+  printf("##################\n");
 }

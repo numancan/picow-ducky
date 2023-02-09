@@ -74,7 +74,7 @@ void kb_send_keycodes(uint8_t keycodes[6]);
 static inline bool kb_is_buffer_empty() { return kb_buffer.counter == 0; }
 
 /**
- * TODO: gönderilcen item yoksa readydir
+ * TODO: Data to be written örnek gönderilcen item yoksa readydir
  * 
  */
 static inline uint8_t kb_status () { return kb_is_buffer_empty() ? KB_STATUS_READY : KB_STATUS_BUSY; }

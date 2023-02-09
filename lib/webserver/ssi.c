@@ -15,7 +15,8 @@ const char * __not_in_flash("httpd") ssi_example_tags[] = {
   "payloads",
   "wssid",
   "wpass",
-  "pname"
+  "pname",
+  "pti"
 };
 
 u16_t __time_critical_func(ssi_handler)(int iIndex, char *pcInsert, int iInsertLen) {
@@ -26,28 +27,30 @@ u16_t __time_critical_func(ssi_handler)(int iIndex, char *pcInsert, int iInsertL
 
     sdm_read_dir("/payloads", pcInsert, iInsertLen);
 
-    // printed = strlen(pcInsert);
     printed = snprintf(pcInsert, iInsertLen, "%s", pcInsert);
     break;
 
   case 1: /* "wssid" */
     {
       printed = snprintf(pcInsert, iInsertLen, "<input type='text' id='wssid' name='WSSID' value='%s'>", S_WIFI_SSID);
-      printf("insert len:%d\n", iInsertLen);
     }
     break;
   
   case 2: /* "wpass" */
     {
       printed = snprintf(pcInsert, iInsertLen, "<input type='text' id='wpass' name='WPASS' value='%s'>", S_WIFI_PASS);
-      printf("insert len:%d\n", iInsertLen);
     }
     break;
 
   case 3: /* "pname" */
     {
       printed = snprintf(pcInsert, iInsertLen, "<input type='text' id='pname' name='PNAME' value='%s'>", S_PAYLOAD_NAME);
-      printf("insert len:%d\n", iInsertLen);
+    }
+    break;
+
+  case 4: /* "pti" */
+    {
+      printed = snprintf(pcInsert, iInsertLen, "<input type='hidden' name='PTI' id='ptiH' value='%s'>", S_PTI ? "true" : "false");
     }
     break;
 
