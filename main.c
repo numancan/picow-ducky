@@ -19,6 +19,7 @@
 #endif
 
 bool is_ducky_working = false;
+
 char next_payload[FILE_MAX_NAME_LEN + 9];
 
 void trigger_payload(char *pname)
