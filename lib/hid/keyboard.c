@@ -11,11 +11,8 @@ static uint32_t interval_ms = INTERVAL_MS_DEF;
 
 // is there any keycode in buffer
 static inline bool kb_has_keycode () { return kb_buffer.keycodes[0]; }
-
 static inline void kb_report_keycodes() { tud_hid_keyboard_report(1, 0, kb_buffer.keycodes); }
-
 static inline void kb_release() { tud_hid_keyboard_report(1, 0, NULL); }
-
 static inline void kb_set_poll_ms(uint32_t ms) { if (ms >= INTERVAL_MS_MIN) interval_ms = ms; }
 
 void kb_report_chr(uint8_t chr)
@@ -108,7 +105,7 @@ uint8_t kb_ascii_to_keycode(uint8_t c)
   return c < 128 ? ascii_conv_table[c][1] : 0;
 }
 
-void tud_hid_report_complete_cb(uint8_t instance, uint8_t const* report, /*uint16_t*/ uint8_t len)
+TU_ATTR_WEAK void tud_hid_report_complete_cb(uint8_t instance, uint8_t const* report, uint16_t len)
 {
   if (kb_is_buffer_empty()) kb_sent_complete_cb();
 }

@@ -8,6 +8,8 @@ typedef enum {
   SL_INT_500MS      = 500,
   SL_INT_1S         = 1000,
   SL_INT_2S         = 2000,
+  SL_INT_3S         = 3000,
+  SL_INT_4S         = 4000
 } sl_interval_t;
 
 typedef enum {
@@ -16,7 +18,13 @@ typedef enum {
   SL_THRICE       = 3,
 } sl_blink_count_t;
 
+typedef enum {
+  SL_PULSE_SLOW   = 300,
+  SL_PULSE_FAST   = 100
+} sl_pulse_t;
+
 void status_led_task();
-void status_led_set_blink(sl_interval_t interval_ms, sl_blink_count_t count);
+void status_led_set_interval(sl_interval_t interval_ms);
+void status_led_set_pulse(sl_blink_count_t count, sl_pulse_t pulse);
 
 #endif

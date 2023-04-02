@@ -11,6 +11,8 @@
 #include "lib/settings/settings.h"
 #include "lib/status_led/status_led.h"
 
+// #define PICOW
+
 #ifdef PICOW
 // #include "pico/cyw43_arch.h"
 #include "lib/webserver/webserver.h"
@@ -19,7 +21,6 @@
 #endif
 
 bool is_ducky_working = false;
-
 char next_payload[FILE_MAX_NAME_LEN + 9];
 
 void trigger_payload(char *pname)
@@ -53,10 +54,10 @@ int main(void)
   stdio_init_all();
 
   multicore_launch_core1(status_led_task);
-  status_led_set_blink(SL_INT_500MS, SL_ONCE);
+  sleep_ms(500);
 
   if (sdm_mount() != FR_OK) {
-    status_led_set_blink(SL_INT_1S, SL_ONCE);
+    status_led_set_pulse(SL_TWICE, SL_PULSE_SLOW);
     while(1){};
   }
   settings_init("settings.txt");
@@ -68,9 +69,9 @@ int main(void)
   switch_init();
   is_ws_enabled = gpio_get(WS_SWITCH_PIN);
 
+  status_led_set_pulse(SL_THRICE, SL_PULSE_FAST);
   if (is_ws_enabled && ws_init(S_WIFI_SSID, S_WIFI_PASS) != WS_ERR_OK) {
-    status_led_set_blink(SL_INT_2S, SL_TWICE);
-    sleep_ms(500);
+    status_led_set_pulse( SL_THRICE, SL_PULSE_SLOW);
     while(1){};
   }
 #endif
@@ -80,13 +81,13 @@ int main(void)
   }
 
   kb_init();
-  status_led_set_blink(SL_HIGH, SL_ONCE);
+  status_led_set_interval(SL_HIGH);
 
   while (1)
   {
     /** TODO: bu belki ducky icinde olabilir ducky_task?*/
     if (*next_payload && dh_is_ready()) {
-      status_led_set_blink(SL_INT_250MS, SL_ONCE);
+      status_led_set_interval(SL_INT_250MS);
 
       ducky_line_t *dl;
       TCHAR buf[256];
@@ -98,7 +99,7 @@ int main(void)
       } else {
         memset(next_payload, 0, sizeof(next_payload));
         sdm_close_file();
-        status_led_set_blink(SL_HIGH, SL_ONCE);
+        status_led_set_interval(SL_HIGH);
       }
     }
 

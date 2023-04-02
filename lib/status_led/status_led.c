@@ -10,12 +10,13 @@
 
 static sl_interval_t blink_interval_ms;
 static sl_blink_count_t blink_count;
+static uint16_t pulse_interval_ms = SL_PULSE_SLOW;
 
 void status_led_init()
 {
   gpio_init(LPIN);
   gpio_set_dir(LPIN, GPIO_OUT);
-  status_led_set_blink(SL_DISABLED, SL_ONCE);
+  status_led_set_interval(SL_INT_500MS);
 }
 
 void led_blinking_task(void)
@@ -32,9 +33,9 @@ void led_blinking_task(void)
     for (size_t i = 0; i < blink_count; i++)
     {
       gpio_put(LPIN, 1);
-      sleep_ms(100);
+      sleep_ms(pulse_interval_ms);
       gpio_put(LPIN, 0);
-      sleep_ms(100);
+      sleep_ms(pulse_interval_ms);
     }
 
     return;
@@ -43,14 +44,20 @@ void led_blinking_task(void)
   gpio_put(LPIN, !gpio_get(LPIN));
 }
 
-void status_led_set_blink(sl_interval_t interval_ms, sl_blink_count_t count) 
+void status_led_set_interval(sl_interval_t interval_ms) 
 {
   if (interval_ms == SL_HIGH || interval_ms == SL_DISABLED) {
     gpio_put(LPIN, interval_ms);
   }
 
   blink_interval_ms = interval_ms;
+}
+
+void status_led_set_pulse(sl_blink_count_t count, sl_pulse_t pulse)
+{
+  blink_interval_ms = SL_INT_3S;
   blink_count = count;
+  pulse_interval_ms = pulse;
 }
 
 void status_led_task(void)

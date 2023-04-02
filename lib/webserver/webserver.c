@@ -5,10 +5,10 @@
 
 #include "webserver.h"
 
-#define WIFI_CONNECTION_TIMEOUT 30000
+#define WIFI_CONNECTION_TIMEOUT 10000
 
 #define RETRY_F(func, count)  \
-  size_t _count = count;      \
+  size_t _count = count - 1;  \
   do { if(!func) break; }     \
   while(_count--)                       
 
