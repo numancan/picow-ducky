@@ -71,7 +71,7 @@ int main(void)
 
   status_led_set_pulse(SL_THRICE, SL_PULSE_FAST);
   if (is_ws_enabled && ws_init(S_WIFI_SSID, S_WIFI_PASS) != WS_ERR_OK) {
-    status_led_set_pulse( SL_THRICE, SL_PULSE_SLOW);
+    status_led_set_pulse(SL_THRICE, SL_PULSE_SLOW);
     while(1){};
   }
 #endif

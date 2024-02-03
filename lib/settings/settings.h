@@ -9,13 +9,15 @@ typedef struct
   char      wifi_pass[WPASS_MAX_NAME_LEN];
   char      payload_name[FILE_MAX_NAME_LEN]; /** */
   bool      pti;
+  uint32_t  ip;
 } settings_t;
 extern settings_t *const settings;
 
-#define S_WIFI_SSID (settings->wifi_ssid)
-#define S_WIFI_PASS (settings->wifi_pass)
-#define S_PAYLOAD_NAME (settings->payload_name)
-#define S_PTI (settings->pti)
+#define S_WIFI_SSID     (settings->wifi_ssid)
+#define S_WIFI_PASS     (settings->wifi_pass)
+#define S_PAYLOAD_NAME  (settings->payload_name)
+#define S_PTI           (settings->pti)
+#define S_IP            (settings->ip)
 
 /**
  * @brief Initialize settings with reading settings.txt from SD Card.

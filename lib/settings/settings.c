@@ -13,14 +13,16 @@ const char const *parameters[] = {
   "WSSID",
   "WPASS",
   "PNAME",
-  "PTI"
+  "PTI",
+  "IP"
 };
 
 settings_t *const settings = &(settings_t) {
   .wifi_ssid = "SSID",
   .wifi_pass = "PASSWORD",
   .payload_name = "hello_world.txt",
-  .pti = false
+  .pti = false,
+  .ip = 922855616  
   };
 
 

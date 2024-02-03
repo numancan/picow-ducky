@@ -20,6 +20,10 @@ ws_err_t ws_init(const char *ssid, const char *pass)
 
   if (cyw43_wifi_pm(&cyw43_state, CYW43_PERFORMANCE_PM)) return WS_ERR_WIFI_INIT;
 
+  ip_addr_t addr;
+  IP4_ADDR(&addr, 192,168,1,55);
+  printf("%d\n", addr);
+
   RETRY_F(cyw43_arch_wifi_connect_timeout_ms(ssid, pass, CYW43_AUTH_WPA2_AES_PSK, WIFI_CONNECTION_TIMEOUT), 3);
   
   if (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) != CYW43_LINK_UP) {
