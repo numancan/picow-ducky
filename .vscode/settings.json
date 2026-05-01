@@ -1,0 +1,119 @@
+{
+    "cmake.options.statusBarVisibility": "hidden",
+    "cmake.options.advanced": {
+        "build": {
+            "statusBarVisibility": "hidden"
+        },
+        "launch": {
+            "statusBarVisibility": "hidden"
+        },
+        "debug": {
+            "statusBarVisibility": "hidden"
+        }
+    },
+    "cmake.configureOnEdit": false,
+    "cmake.automaticReconfigure": false,
+    "cmake.configureOnOpen": false,
+    "cmake.generator": "Ninja",
+    "cmake.cmakePath": "${userHome}/.pico-sdk/cmake/v3.31.5/bin/cmake",
+    "C_Cpp.debugShortcut": false,
+    "terminal.integrated.env.windows": {
+        "PICO_SDK_PATH": "${env:USERPROFILE}/.pico-sdk/sdk/2.1.1",
+        "PICO_TOOLCHAIN_PATH": "${env:USERPROFILE}/.pico-sdk/toolchain/14_2_Rel1",
+        "Path": "${env:USERPROFILE}/.pico-sdk/toolchain/14_2_Rel1/bin;${env:USERPROFILE}/.pico-sdk/picotool/2.1.1/picotool;${env:USERPROFILE}/.pico-sdk/cmake/v3.31.5/bin;${env:USERPROFILE}/.pico-sdk/ninja/v1.12.1;${env:PATH}"
+    },
+    "terminal.integrated.env.osx": {
+        "PICO_SDK_PATH": "${env:HOME}/.pico-sdk/sdk/2.1.1",
+        "PICO_TOOLCHAIN_PATH": "${env:HOME}/.pico-sdk/toolchain/14_2_Rel1",
+        "PATH": "${env:HOME}/.pico-sdk/toolchain/14_2_Rel1/bin:${env:HOME}/.pico-sdk/picotool/2.1.1/picotool:${env:HOME}/.pico-sdk/cmake/v3.31.5/bin:${env:HOME}/.pico-sdk/ninja/v1.12.1:${env:PATH}"
+    },
+    "terminal.integrated.env.linux": {
+        "PICO_SDK_PATH": "${env:HOME}/.pico-sdk/sdk/2.1.1",
+        "PICO_TOOLCHAIN_PATH": "${env:HOME}/.pico-sdk/toolchain/14_2_Rel1",
+        "PATH": "${env:HOME}/.pico-sdk/toolchain/14_2_Rel1/bin:${env:HOME}/.pico-sdk/picotool/2.1.1/picotool:${env:HOME}/.pico-sdk/cmake/v3.31.5/bin:${env:HOME}/.pico-sdk/ninja/v1.12.1:${env:PATH}"
+    },
+    "raspberry-pi-pico.cmakeAutoConfigure": true,
+    "raspberry-pi-pico.useCmakeTools": false,
+    "raspberry-pi-pico.cmakePath": "${HOME}/.pico-sdk/cmake/v3.31.5/bin/cmake",
+    "raspberry-pi-pico.ninjaPath": "${HOME}/.pico-sdk/ninja/v1.12.1/ninja",
+    "files.associations": {
+        "hw_config.h": "c",
+        "sd_card.h": "c",
+        "f_util.h": "c",
+        "ff.h": "c",
+        "cstdint": "c",
+        "hal_sd.h": "c",
+        "deque": "c",
+        "string": "c",
+        "vector": "c",
+        "malloc.h": "c",
+        "hal.h": "c",
+        "hal_gpio.h": "c",
+        "gpio.h": "c",
+        "stdlib.h": "c",
+        "stdio.h": "c",
+        "my_rtc.h": "c",
+        "web_server.h": "c",
+        "cyw43_arch.h": "c",
+        "httpd.h": "c",
+        "freertos.h": "c",
+        "lwipopts.h": "c",
+        "mdns.h": "c",
+        "debug.h": "c",
+        "cmath": "c",
+        "cgi.h": "c",
+        "pubsub.h": "c",
+        "httpd_opts.h": "c",
+        "cstring": "c",
+        "string.h": "c",
+        "sd_memory.h": "c",
+        "ffconf.h": "c",
+        "compare": "c",
+        "ssi.h": "c",
+        "settings.h": "c",
+        "sd_card_glue.h": "c",
+        "hal_sd_glue.h": "c",
+        "system_error": "c",
+        "charconv": "c",
+        "optional": "c",
+        "format": "c",
+        "array": "c",
+        "functional": "c",
+        "tuple": "c",
+        "type_traits": "c",
+        "utility": "c",
+        "text_encoding": "c",
+        "stdint.h": "c",
+        "parser.h": "c",
+        "handler.h": "c",
+        "ducky.h": "c",
+        "keyboard.h": "c",
+        "tusb.h": "c",
+        "tr_keycode.h": "c",
+        "usb_descriptors.h": "c",
+        "cyw43_driver.h": "c",
+        "async_context_freertos.h": "c",
+        "cyw43.h": "c",
+        "cyw43_ll.h": "c",
+        "spi.h": "c",
+        "hal_display.h": "c",
+        "mui_u8g2.h": "c",
+        "i2c.h": "c",
+        "freertosconfig.h": "c",
+        "uil1.h": "c",
+        "display.h": "c",
+        "u8g2.h": "c"
+    },
+    "python.linting.enabled": true,
+    "python.languageServer": "Jedi",
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportMissingModuleSource": "none"
+    },
+    "python.analysis.typeshedPaths": [
+        ".vscode\\Pico-W-Stub"
+    ],
+    "python.analysis.extraPaths": [
+        ".vscode\\Pico-W-Stub"
+    ]
+}
