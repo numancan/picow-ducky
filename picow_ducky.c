@@ -62,7 +62,7 @@ int main() {
     }
 
     if (settings_get_bool(SETTINGS_ID_WEB_SERVER_ENABLED)) {
-        xTaskCreate(ws_init, "webserver", configMINIMAL_STACK_SIZE, NULL, TEST_TASK_PRIORITY, NULL);
+        xTaskCreate(web_server_task, "webserver", configMINIMAL_STACK_SIZE, NULL, TEST_TASK_PRIORITY, NULL);
     }
 
     // xTaskCreate(battery_test_task, "battery_test", configMINIMAL_STACK_SIZE, NULL, TEST_TASK_PRIORITY, NULL);
