@@ -1,41 +1,88 @@
-#include "stdlib.h"
 #include "pubsub_free.h"
+
 #include "middleware/debug.h"
+#include "stdio.h"
+#include "stdlib.h"
 
 PubSubFree* pubsub_free_alloc() {
-    PubSubFree *pubsub = (PubSubFree*) malloc(sizeof(PubSubFree));
-    pubsub->subs_queue = (QueueHandle_t*) malloc(sizeof(QueueHandle_t));
+    PubSubFree* pubsub = (PubSubFree*)malloc(sizeof(PubSubFree));
+    if (pubsub == NULL) return NULL;
+
+    pubsub->subs_queue = NULL;
     pubsub->subscribe_count = 0;
+    pubsub->mutex = xSemaphoreCreateMutex();
 
     return pubsub;
 }
 
-void pubsub_free_dealloc(PubSubFree *pubsub) {
+void pubsub_free_dealloc(PubSubFree* pubsub) {
+    xSemaphoreTake(pubsub->mutex, portMAX_DELAY);
+
+    vSemaphoreDelete(pubsub->mutex);
     free(pubsub->subs_queue);
     free(pubsub);
 }
 
-void pubsub_free_subscribe(PubSubFree *pubsub, QueueHandle_t queue)
-{
-    QueueHandle_t *tmp = (QueueHandle_t*) realloc(pubsub->subs_queue, sizeof(QueueHandle_t) * (pubsub->subscribe_count + 1));
-    
-    if (tmp == NULL) {
-        DEBUG_PRINTF("pubsub_free_subscribe err: No memory!");
-        free(pubsub->subs_queue);
+void pubsub_free_subscribe(PubSubFree* pubsub, QueueHandle_t queue) {
+    if (pubsub == NULL || pubsub->mutex == NULL) return;
+
+    if (xSemaphoreTake(pubsub->mutex, portMAX_DELAY) == pdTRUE) {
+        QueueHandle_t* tmp =
+            (QueueHandle_t*)realloc(pubsub->subs_queue, sizeof(QueueHandle_t) * (pubsub->subscribe_count + 1));
+
+        if (tmp == NULL) {
+            printf("[PubSub] Subscribe err: No memory!\n");
+            xSemaphoreGive(pubsub->mutex);
+            return;
+        }
+
+        pubsub->subs_queue = tmp;
+        pubsub->subs_queue[pubsub->subscribe_count] = queue;
+        pubsub->subscribe_count++;
+
+        xSemaphoreGive(pubsub->mutex);
     }
-
-    pubsub->subs_queue = tmp;
-    tmp = NULL;
-
-    pubsub->subs_queue[pubsub->subscribe_count] = queue;
-    pubsub->subscribe_count++;
 }
 
+void pubsub_free_unsubscribe(PubSubFree* pubsub, QueueHandle_t queue) {
+    if (pubsub == NULL || pubsub->mutex == NULL) return;
 
-void pubsub_free_notify(PubSubFree *pubsub, void *msg)
-{
-    for (size_t i = 0; i < pubsub->subscribe_count; i++)
-    {
-        xQueueSend(pubsub->subs_queue[i], msg, 0);
+    if (xSemaphoreTake(pubsub->mutex, portMAX_DELAY) == pdTRUE) {
+        for (size_t i = 0; i < pubsub->subscribe_count; i++) {
+            if (pubsub->subs_queue[i] == queue) {
+                // Shift remaining elements
+                for (size_t j = i; j < pubsub->subscribe_count - 1; j++) {
+                    pubsub->subs_queue[j] = pubsub->subs_queue[j + 1];
+                }
+                pubsub->subscribe_count--;
+
+                // Shrink memory
+                if (pubsub->subscribe_count > 0) {
+                    QueueHandle_t* tmp =
+                        (QueueHandle_t*)realloc(pubsub->subs_queue, sizeof(QueueHandle_t) * pubsub->subscribe_count);
+                    if (tmp != NULL) {
+                        pubsub->subs_queue = tmp;
+                    }
+                } else {
+                    free(pubsub->subs_queue);
+                    pubsub->subs_queue = NULL;
+                }
+                break;
+            }
+        }
+        xSemaphoreGive(pubsub->mutex);
+    }
+}
+
+void pubsub_free_notify(PubSubFree* pubsub, void* msg) {
+    if (pubsub == NULL || pubsub->mutex == NULL) return;
+
+    if (xSemaphoreTake(pubsub->mutex, portMAX_DELAY) == pdTRUE) {
+        for (size_t i = 0; i < pubsub->subscribe_count; i++) {
+            if (xQueueSend(pubsub->subs_queue[i], msg, 0) != pdTRUE) {
+                // printf("[PubSub] Notify err: Queue %d full\n", (int)i);
+            }
+        }
+        xSemaphoreGive(pubsub->mutex);
     }
 }
