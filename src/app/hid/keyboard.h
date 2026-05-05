@@ -45,6 +45,7 @@ static inline void kb_set_poll_ms(uint32_t ms);
  * Application must be called this function in main loop.
  */
 void kb_task();
+void usb_hid_task(void* params);
 
 /**
  * Append all character to buffer to send by kb_task.

@@ -111,6 +111,7 @@ target_sources(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/src/app/settings/settings.c
         ${CMAKE_CURRENT_LIST_DIR}/src/app/settings/settings_view.c
         ${CMAKE_CURRENT_LIST_DIR}/src/app/status_led/status_led.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/app/task_manager/task_manager.c
 )
 
 pico_set_program_name(picow_ducky "picow_ducky")

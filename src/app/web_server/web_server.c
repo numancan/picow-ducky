@@ -10,6 +10,7 @@
 #include "pico/cyw43_arch.h"
 #include "ssi.h"
 #include "task.h"
+#include "app/task_manager/task_manager.h"
 
 #define WIFI_CONNECTION_TIMEOUT 10000
 #define WIFI_MAX_RETRIES 10
@@ -98,5 +99,6 @@ void web_server_task(void* pvParameters) {
 cleanup_cyw43:
     cyw43_arch_deinit();
 cleanup_none:
+    task_manager_report_stopped(TASK_MANAGER_TASK_WEB_SERVER);
     vTaskDelete(NULL);
 }

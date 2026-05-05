@@ -4,7 +4,6 @@
 #include "hal/hal.h"
 #include "hal/hal_gpio.h"
 
-
 typedef enum {
     INPUT_EVENT_TYPE_PRESS,
     INPUT_EVENT_TYPE_LONG_PRESS,
@@ -19,6 +18,6 @@ typedef struct {
 } InputEvent;
 
 void input_init();
-void input_service();
+void input_task(void* params);
 const char* input_event_get_name(InputEventType);
 PubSubFree* input_get_pubsub();

@@ -35,7 +35,9 @@ void kb_report_chr(uint8_t chr) {
 }
 
 void kb_init() {
+    // TODO: we have a custom board, maybe we need to init it manually?
     board_init();
+
     tud_init(BOARD_TUD_RHPORT);
 
     if (board_init_after_tusb) {
@@ -49,7 +51,6 @@ void kb_send_reports() {
     if (!tud_hid_ready()) return;
 
     if (!is_key_pressed) {
-        // TODO: açıklama
         if (kb_has_keycode()) {
             kb_report_keycodes();
             tu_memclr(kb_buffer.keycodes, 6);
@@ -118,6 +119,19 @@ void tud_mount_cb(void) {}
 void tud_umount_cb(void) {}
 void tud_suspend_cb(bool remote_wakeup_en) { printf("usb suspend cb!"); }
 void tud_resume_cb(void) {}
+
+void usb_hid_task(void* params) {
+    // NOTE: This task is currently managed with notify_on_stop = false (forced delete).
+    // If graceful shutdown is needed (e.g. to put USB hardware to sleep),
+    // add ulTaskNotifyTake() loop check and update task_manager.c.
+    kb_init();
+
+    while (1) {
+        kb_task();
+        // vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
+
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer,
                            uint16_t bufsize) {}
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer,

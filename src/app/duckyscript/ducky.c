@@ -8,6 +8,9 @@
 #include "stdio.h"
 #include "string.h"
 #include "web_server/cgi.h"
+#include "app/task_manager/task_manager.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 static FIL current_file;
 static char next_payload[24];  // TODO: max payload name
@@ -31,13 +34,6 @@ static void ducky_trigger_callback(CgiEvent* event) {
 
     printf("ducky_trigger_callback: %s %d\n", event->value, strlen(event->value));
     ducky_play_script(event->value);
-
-    // // TODO: get payload path
-    // snprintf(next_payload, strlen(event->value) + 1, "%s", event->value);
-
-    // sd_card_change_dir("/payloads");
-    // if (sd_card_open_read(&current_file, next_payload) == FR_OK && !send_payload)
-    //     send_payload = true;
 }
 
 // TODO: return status make callback use this func
@@ -54,8 +50,8 @@ void ducky_play_script(char* payload_name) {
     }
 }
 
-void ducky_task() {
-    kb_init();
+void ducky_task(void* params) {
+    (void)params;
 
     // TODO: web server
     // cgi_event_subscribe(ducky_trigger_callback);
@@ -84,6 +80,13 @@ void ducky_task() {
             }
         }
 
-        kb_task();
+        if (ulTaskNotifyTake(pdTRUE, 0)) {
+            break;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
+
+    task_manager_report_stopped(TASK_MANAGER_TASK_DUCKY);
+    vTaskDelete(NULL);
 }

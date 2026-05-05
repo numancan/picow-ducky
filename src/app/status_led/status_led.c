@@ -127,8 +127,31 @@ static void process_incoming_message(const LedMsg* msg, int* rendered_priority) 
     }
 }
 
-static void status_led_task(void* params) {
+void status_led_set_pattern(StatusLedPriority priority, LedPattern pattern) {
+    if (priority >= STATUS_LED_PRIORITY_COUNT) return;
+    LedMsg msg = {.prio = priority, .pattern = pattern};
+    if (led_queue) {
+        xQueueSend(led_queue, &msg, 0);
+    }
+}
+
+void status_led_clear_pattern(StatusLedPriority priority) { status_led_set_pattern(priority, STATUS_LED_PATTERN_NONE); }
+
+void status_led_print_priorities() {
+    printf("\n");
+    for (int i = 0; i < STATUS_LED_PRIORITY_COUNT; i++) {
+        printf("Priority %d: %u/%u (repeat:%d)\n", i, state[i].pattern.on_ms, state[i].pattern.off_ms,
+               state[i].pattern.repeat);
+    }
+}
+
+void status_led_task(void* params) {
     (void)params;
+
+    led_queue = xQueueCreate(10, sizeof(LedMsg));
+    for (int i = 0; i < STATUS_LED_PRIORITY_COUNT; i++) {
+        state[i].pattern = STATUS_LED_PATTERN_NONE;
+    }
 
     int current_priority = -1;
 
@@ -172,31 +195,17 @@ static void status_led_task(void* params) {
         if (xQueueReceive(led_queue, &msg, next_wake) == pdPASS) {
             process_incoming_message(&msg, &current_priority);
         }
-    }
-}
 
-void status_led_init(void) {
-    led_queue = xQueueCreate(10, sizeof(LedMsg));
-    for (int i = 0; i < STATUS_LED_PRIORITY_COUNT; i++) {
-        state[i].pattern = STATUS_LED_PATTERN_NONE;
+        if (ulTaskNotifyTake(pdTRUE, 0)) {
+            break;
+        }
     }
-    xTaskCreate(status_led_task, "status_led", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 2, NULL);
-}
 
-void status_led_set_pattern(StatusLedPriority priority, LedPattern pattern) {
-    if (priority >= STATUS_LED_PRIORITY_COUNT) return;
-    LedMsg msg = {.prio = priority, .pattern = pattern};
-    if (led_queue) {
-        xQueueSend(led_queue, &msg, 0);
+    if (led_queue != NULL) {
+        vQueueDelete(led_queue);
+        led_queue = NULL;
     }
-}
 
-void status_led_clear_pattern(StatusLedPriority priority) { status_led_set_pattern(priority, STATUS_LED_PATTERN_NONE); }
-
-void status_led_print_priorities() {
-    printf("\n");
-    for (int i = 0; i < STATUS_LED_PRIORITY_COUNT; i++) {
-        printf("Priority %d: %u/%u (repeat:%d)\n", i, state[i].pattern.on_ms, state[i].pattern.off_ms,
-               state[i].pattern.repeat);
-    }
+    hal_gpio_write(STATUS_LED_PIN, false);
+    vTaskDelete(NULL);
 }

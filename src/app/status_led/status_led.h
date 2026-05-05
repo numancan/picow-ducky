@@ -25,7 +25,7 @@ extern const LedPattern STATUS_LED_PATTERN_OFF;
 extern const LedPattern STATUS_LED_PATTERN_ON;
 extern const LedPattern STATUS_LED_PATTERN_NONE;  // Clears the priority
 
-void status_led_init(void);
+void status_led_task(void* params);
 void status_led_set_pattern(StatusLedPriority priority, LedPattern pattern);
 void status_led_clear_pattern(StatusLedPriority priority);
 void status_led_test_task(void* params);

@@ -11,32 +11,18 @@
 #include "settings/settings_view.h"
 #include "view_manager.h"
 #include "hal/hal_power.h"
+#include "app/task_manager/task_manager.h"
 
 static void sleep_action() {
     hal_power_deep_sleep();
 }
 
-// struct Gui {
-//     u8g2_t u8g2;
-//     QueueHandle_t input_queue;
-// };
-
-// static Gui *gui = NULL;
-
 static u8g2_t u8g2;
 ViewManager view_manager;
 QueueHandle_t input_queue = NULL;
 
-// Gui* gui_alloc() {
-//     Gui* gui = (Gui*)malloc(sizeof(Gui));
-
-//     gui->input_queue = xQueueCreate(6, sizeof(InputEvent*));
-//     pubsub_subscribe(input_get_pubsub(), gui->input_queue);
-
-//     return gui;
-// }
-
 void gui_task(void *pvParameters) {
+    (void)pvParameters;
     hal_display_init(&u8g2);
 
     u8g2_SetFont(&u8g2, u8g2_font_profont11_tr);
@@ -72,6 +58,19 @@ void gui_task(void *pvParameters) {
             view_manager_input(&view_manager, &tmp_input_event);
         }
 
-        sleep_ms(10);
+        if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10))) {
+            break;
+        }
     }
+
+    // Cleanup
+    if (input_queue != NULL) {
+        pubsub_free_unsubscribe(input_get_pubsub(), input_queue);
+        vQueueDelete(input_queue);
+        input_queue = NULL;
+    }
+
+    printf("[GUI] Task stopping...\n");
+    task_manager_report_stopped(TASK_MANAGER_TASK_GUI);
+    vTaskDelete(NULL);
 }
