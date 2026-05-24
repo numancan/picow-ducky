@@ -114,7 +114,8 @@ uint8_t settings_get_from_sd() {
     char buff[255] = {0};
     // fr = sd_card_read_line(&file, buff, count_of(buff));
     // DEBUG_PRINTF("settings_get_from_sd: %s (%d)\n", FRESULT_str(fr), fr);
-    while (sd_card_read_line(&file, buff, count_of(buff)) != NULL) {
+
+    while (sd_card_read_line(&file, buff, count_of(buff)) == SD_READ_OK) {
         char* param_tag = strtok(buff, "=");
 
         if (param_tag != NULL) {

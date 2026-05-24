@@ -57,6 +57,21 @@ FRESULT sd_card_close(FIL* fil) {
     return fr;
 }
 
+sd_read_result_t sd_card_read_line(FIL* file, char* buf, size_t buf_size) {
+    if (!f_gets(buf, buf_size, file)) {
+        return f_eof(file) ? SD_READ_EOF : SD_READ_ERROR;
+    }
+
+    size_t len = strlen(buf);
+    bool has_newline = (len > 0) && (buf[len - 1] == '\n' || buf[len - 1] == '\r');
+
+    if (!has_newline && !f_eof(file)) {
+        return SD_READ_LINE_TOO_LONG;
+    }
+
+    return SD_READ_OK;
+}
+
 FRESULT sd_card_write(FIL* fil, char* str, uint32_t size) {
     UINT written_byte_size;
 
@@ -173,29 +188,3 @@ FRESULT sd_card_check_file_exits(const char* fname) {
     DEBUG_PRINTF("sd_card_check_file_exits: %s (%d)\n", FRESULT_str(fr), fr);
     return fr;
 }
-
-// FRESULT sd_card_list_dir(char *path) {
-//     DIR temp_dir;
-//     FILINFO fno;
-
-//     FRESULT fr = f_opendir(&temp_dir, path);
-
-//     // snprintf(fnames, n, "");
-
-//     if (fr == FR_OK) {
-//         while (f_readdir(&temp_dir, &fno) == FR_OK && fno.fname[0]) {  // TODO: ya bu readdir resulttu
-//         kaydetmiyoruz?
-//             // strncat(fnames, fno.fname, n);
-//             printf(fno.fname);
-//             size_t fname_size = strlen(fno.fname);
-//             // n -= fname_size;
-//             // memset(fno.fname, 0, fname_size);
-//         }
-
-//         fr = f_closedir(&temp_dir);
-//     }
-
-//     printf("sdm_read_dir: %s (%d)\n", FRESULT_str(fr), fr);
-
-//     return fr;
-// }
