@@ -1,7 +1,7 @@
-#ifndef _HANDLER_H_
-#define _HANDLER_H_
+#ifndef _DUCKY_HANDLER_H_
+#define _DUCKY_HANDLER_H_
 
-#include "parser.h"
+#include "ducky_parser.h"
 
 // TODO: eksikleri tamamla
 #define HID_STRING_TO_KEYCODE               \
@@ -43,20 +43,7 @@
   { "APP",          HID_KEY_APPLICATION },  \
   { "SCROLLLOCK",   HID_KEY_SCROLL_LOCK }   \
 
-typedef enum {
-	DH_STATUS_BUSY = 0,
-  DH_STATUS_DELAYED = 1,
-	DH_STATUS_READY = 2
-} dh_status_t;
 
-// TODO: sarmadı
-dh_status_t dh_is_ready();
-
-/**
- * TODO:
- * 
- * @param buf 
- */
-void dh_handle_dline(ducky_line_t *dl);
+void ducky_handler_exec_line(ducky_line_t *dl);
 
 #endif

@@ -26,6 +26,8 @@ endif()
 set(PICO_BOARD pico_w CACHE STRING "Board type")
 set(FREERTOS_KERNEL_PATH ${USERHOME}/.pico-sdk/FreeRTOS-Kernel)
 
+set(TINYUSB_OPT_OS "OPT_OS_FREERTOS")
+
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 include(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2040/FreeRTOS_Kernel_import.cmake)
@@ -70,6 +72,7 @@ if (DEFINED ENV{WIFI_SSID} AND (NOT WIFI_SSID))
 set(WIFI_SSID "${WIFI_SSID}" CACHE INTERNAL "WiFi SSID for examples")
 set(WIFI_PASSWORD "${WIFI_PASSWORD}" CACHE INTERNAL "WiFi password for examples")
 
+
 target_compile_definitions(picow_ducky 
     PUBLIC DEBUG=1
     portSUPPORT_SMP=1
@@ -98,12 +101,13 @@ target_sources(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/src/app/web_server/post.c
         ${CMAKE_CURRENT_LIST_DIR}/src/app/pubsub/pubsub.c
         ${CMAKE_CURRENT_LIST_DIR}/src/app/pubsub/pubsub_free.c
-        ${CMAKE_CURRENT_LIST_DIR}/src/app/duckyscript/handler.c
-        ${CMAKE_CURRENT_LIST_DIR}/src/app/duckyscript/parser.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/app/duckyscript/ducky_handler.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/app/duckyscript/ducky_parser.c
         ${CMAKE_CURRENT_LIST_DIR}/src/app/duckyscript/ducky.c
         ${CMAKE_CURRENT_LIST_DIR}/src/app/duckyscript/ducky_view.c
-        ${CMAKE_CURRENT_LIST_DIR}/src/app/hid/keyboard.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/app/hid/usb_device.c
         ${CMAKE_CURRENT_LIST_DIR}/src/app/hid/usb_descriptors.c
+        ${CMAKE_CURRENT_LIST_DIR}/src/app/hid/usb_hid.c
         ${CMAKE_CURRENT_LIST_DIR}/src/app/gui/gui.c
         ${CMAKE_CURRENT_LIST_DIR}/src/app/gui/menu_view.c
         ${CMAKE_CURRENT_LIST_DIR}/src/app/gui/ui_common.c
@@ -128,6 +132,7 @@ target_include_directories(picow_ducky PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/src/app
         ${CMAKE_CURRENT_LIST_DIR}/src/app/web_server #lwipopts.h
         ${CMAKE_CURRENT_LIST_DIR}/src/app/hid #tusb_config.h
+        ${CMAKE_CURRENT_LIST_DIR}/src/app/hid/layouts
         ${PICO_LWIP_CONTRIB_PATH}/apps/httpd
 
 )
