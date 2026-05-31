@@ -1,17 +1,24 @@
 #include "fat_io.h"
 
+#include <stdlib.h>
+
 #include "hw_config.h"
+#include "log.h"
 
 static bool fat_io_is_mounted_flag = false;
+static const char* TAG = "fat_io";
 
 FRESULT fat_io_mount() {
     sd_card_t* sd_card = sd_get_by_num(0);
 
-    // PANIC_IF("SD CARD not initiated!", sd_card->state.m_Status == STA_NOINIT);
+    if (!sd_card->spi_if_p->spi->initialized) {
+        LOG_ERROR(TAG, "SD CARD not initiated!\n");
+        return FR_NOT_READY;
+    }
 
     FRESULT fr = f_mount(&sd_card->state.fatfs, "", 1);
 
-    printf("fat_io_mount: %s (%d)\n", FRESULT_str(fr), fr);
+    LOG_INFO(TAG, "fat_io_mount: %s (%d)", FRESULT_str(fr), fr);
 
     if (fr == FR_OK) fat_io_is_mounted_flag = true;
     return fr;
@@ -20,7 +27,7 @@ FRESULT fat_io_mount() {
 FRESULT fat_io_unmount() {
     FRESULT fr = f_unmount("");
 
-    printf("fat_io_unmount: %s (%d)\n", FRESULT_str(fr), fr);
+    LOG_INFO(TAG, "fat_io_unmount: %s (%d)", FRESULT_str(fr), fr);
 
     if (fr == FR_OK) fat_io_is_mounted_flag = false;
     return fr;
@@ -31,7 +38,7 @@ bool fat_io_is_mounted() { return fat_io_is_mounted_flag; }
 FRESULT fat_io_open_write(FIL* fil, const char* const filename) {
     FRESULT fr = f_open(fil, filename, FA_OPEN_APPEND | FA_WRITE | FA_CREATE_ALWAYS);
 
-    printf("f_open(%s): %s (%d)\n", filename, FRESULT_str(fr), fr);
+    LOG_INFO(TAG, "f_open(%s): %s (%d)", filename, FRESULT_str(fr), fr);
 
     return fr;
 }
@@ -43,7 +50,7 @@ FRESULT fat_io_open_read(FIL* fil, const char* const filename) {
     // fr = f_getcwd(str, 126); /* Get current directory path */
     // printf("%s\n", fr);
 
-    printf("fat_io_open_read: %s (%d)\n", FRESULT_str(fr), fr);
+    LOG_INFO(TAG, "fat_io_open_read: %s (%d)", FRESULT_str(fr), fr);
 
     return fr;
 }
@@ -51,7 +58,7 @@ FRESULT fat_io_open_read(FIL* fil, const char* const filename) {
 FRESULT fat_io_close(FIL* fil) {
     FRESULT fr = f_close(fil);
 
-    printf("f_close: %s (%d)\n", FRESULT_str(fr), fr);
+    LOG_INFO(TAG, "f_close: %s (%d)", FRESULT_str(fr), fr);
 
     return fr;
 }
@@ -78,15 +85,36 @@ FRESULT fat_io_write(FIL* fil, char* str, uint32_t size) {
 
     // TODO: check size == writen
     if (fr != FR_OK && written_byte_size < 0) {
-        printf("ERROR: Could not write to file (%d)\r\n", written_byte_size);
+        LOG_ERROR(TAG, "ERROR: Could not write to file (%d)", written_byte_size);
         return fr;
     }
 
-    printf("fat_io written byte:%lu == %lu\n", written_byte_size, size);
+    LOG_DEBUG(TAG, "fat_io written byte:%lu == %lu", written_byte_size, size);
 
     return fr;
 }
 
+uint32_t fat_io_count_files(const char* path) {
+    FRESULT fr;
+    DIR dir;
+    FILINFO fno;
+    uint32_t count = 0;
+
+    fr = f_opendir(&dir, path);
+    if (fr == FR_OK) {
+        for (;;) {
+            fr = f_readdir(&dir, &fno);
+            if (fr != FR_OK || fno.fname[0] == 0) break;
+            if (!(fno.fattrib & AM_DIR)) count++;
+        }
+        f_closedir(&dir);
+    } else {
+    }
+
+    return count;
+}
+
+// FIXME: Deprecated
 uint32_t fat_io_list_dir(const char* path, char* file_list, uint32_t n, const char* delim) {
     FRESULT fr;
     DIR dir;
@@ -103,13 +131,11 @@ uint32_t fat_io_list_dir(const char* path, char* file_list, uint32_t n, const ch
             if (fr != FR_OK || fno.fname[0] == 0) break;
 
             if (fno.fattrib & AM_DIR) { /* Directory */
-                printf("   <DIR>   %s\n", fno.fname);
+                LOG_DEBUG(TAG, "   <DIR>   %s\n", fno.fname);
             } else { /* File */
-                // printf("%s\n", fno.fname);
-
                 size_t fname_size = strlen(fno.fname);
                 if (!(n > fname_size)) {
-                    printf("fat_io: There is no space to write file list");
+                    LOG_ERROR(TAG, "fat_io: There is no space to write file list");
                     fr = FR_INVALID_PARAMETER;
                     break;
                 }
@@ -120,9 +146,9 @@ uint32_t fat_io_list_dir(const char* path, char* file_list, uint32_t n, const ch
                 n -= fname_size + 1;  // +1 for delim
             }
         }
-        printf("fat_io_list_dir: %d file found!\n", nFile);
+        LOG_INFO(TAG, "fat_io_list_dir: %d file found!", nFile);
     } else {
-        printf("Failed to open \"%s\". (%u)\n", path, fr);
+        LOG_ERROR(TAG, "Failed to open \"%s\". (%u)", path, fr);
     }
 
     f_closedir(&dir);
@@ -130,24 +156,40 @@ uint32_t fat_io_list_dir(const char* path, char* file_list, uint32_t n, const ch
     return nFile;
 }
 
-uint32_t fat_io_count_dir(const char* path) {
+uint32_t fat_io_alloc_file_names(const char* path, char** file_list, uint32_t max_count) {
     FRESULT fr;
     DIR dir;
     FILINFO fno;
-    uint32_t nFile = 0;
+    uint32_t count = 0;
 
     fr = f_opendir(&dir, path);
-
     if (fr == FR_OK) {
         for (;;) {
             fr = f_readdir(&dir, &fno);
             if (fr != FR_OK || fno.fname[0] == 0) break;
-            nFile++;
+
+            if (!(fno.fattrib & AM_DIR)) {
+                size_t name_len = strlen(fno.fname);
+                file_list[count] = malloc(name_len + 1);
+
+                if (file_list[count] == NULL) {
+                    LOG_ERROR(TAG, "Failed to allocate memory for file name");
+                    return 0;
+                }
+
+                strcpy(file_list[count], fno.fname);
+
+                count++;
+
+                if (count >= max_count) break;
+            }
         }
         f_closedir(&dir);
+    } else {
+        LOG_ERROR(TAG, "Failed to open directory: %d", fr);
     }
 
-    return nFile;
+    return count;
 }
 
 FRESULT fat_io_read_until(FIL* fil, char* buffer, char delim, int16_t len) {
@@ -173,17 +215,24 @@ FRESULT fat_io_read_until(FIL* fil, char* buffer, char delim, int16_t len) {
 FRESULT fat_io_remove_file(const char* filename) {
     FRESULT fr = f_unlink(filename);
 
-    printf("fat_io_remove_file: %s (%d)\n", FRESULT_str(fr), fr);
+    LOG_INFO(TAG, "fat_io_remove_file: %s (%d)", FRESULT_str(fr), fr);
+    return fr;
+}
+
+FRESULT fat_io_rename(const char* old_path, const char* new_path) {
+    FRESULT fr = f_rename(old_path, new_path);
+
+    LOG_INFO(TAG, "fat_io_rename: %s (%d)", FRESULT_str(fr), fr);
     return fr;
 }
 
 FRESULT fat_io_check_file_exits(const char* fname) {
     FRESULT fr;
     FILINFO fno;
-    printf("Test for \"%s\"...\n", fname);
+    LOG_INFO(TAG, "Test for \"%s\"...\n", fname);
 
     fr = f_stat(fname, &fno);
 
-    printf("fat_io_check_file_exits: %s (%d)\n", FRESULT_str(fr), fr);
+    LOG_INFO(TAG, "fat_io_check_file_exits: %s (%d)", FRESULT_str(fr), fr);
     return fr;
 }
