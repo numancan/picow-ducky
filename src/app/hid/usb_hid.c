@@ -7,8 +7,10 @@
 
 #include "layouts/hid_layout_tr_q.h"
 #include "layouts/hid_layout_us_q.h"
-#include "middleware/debug.h"
+#include "middleware/log.h"
 #include "usb_descriptors.h"
+
+static const char* TAG = "USB_HID";
 
 static HIDLayout keyboard_layout = HID_KEY_LAYOUT_US_Q;
 
@@ -37,12 +39,9 @@ static const struct {
 
 static const KeyEntry* get_layout_table(void) {
     switch (keyboard_layout) {
-        case HID_KEY_LAYOUT_US_Q:
-            return ascii_table_tr;
-        case HID_KEY_LAYOUT_TR_Q:
-            return ascii_table_us;
-        default:
-            return ascii_table_us;
+        case HID_KEY_LAYOUT_US_Q: return ascii_table_us;
+        case HID_KEY_LAYOUT_TR_Q: return ascii_table_tr;
+        default: return ascii_table_us;
     }
 }
 
@@ -84,10 +83,10 @@ static bool wait_complete(void) {
     // wait notify from complete_cb
     if (xSemaphoreTake(complete_semaphore(), pdMS_TO_TICKS(200)) == pdFAIL) {
         // TODO: need to do something?
-        printf("[usb_hid] host timeout\n");
+        LOG_WARN(TAG, "USB Host timeout");
         if (!tud_mounted()) {
             // TODO: USB disconnect goto cleanup
-            printf("[usb_hid] disconnect\n");
+            LOG_INFO(TAG, "USB disconnected");
             return false;
         }
         return false;
@@ -102,22 +101,22 @@ static void send_report(const HIDReport* r) {
 
     switch (r->kind) {
         case REPORT_ID_KEYBOARD:
-            DEBUG_PRINTF("[%lu] KEYBOARD mod=0x%02X kc=%02X %02X %02X %02X %02X %02X\n", now, r->keyboard.modifier,
-                         r->keyboard.keycodes[0], r->keyboard.keycodes[1], r->keyboard.keycodes[2],
-                         r->keyboard.keycodes[3], r->keyboard.keycodes[4], r->keyboard.keycodes[5]);
+            LOG_DEBUG(TAG, "[%lu] KEYBOARD mod=0x%02X kc=%02X %02X %02X %02X %02X %02X", now, r->keyboard.modifier,
+                      r->keyboard.keycodes[0], r->keyboard.keycodes[1], r->keyboard.keycodes[2],
+                      r->keyboard.keycodes[3], r->keyboard.keycodes[4], r->keyboard.keycodes[5]);
 
             tud_hid_keyboard_report(REPORT_ID_KEYBOARD, r->keyboard.modifier, (uint8_t*)r->keyboard.keycodes);
             break;
 
         case REPORT_ID_MOUSE:
-            DEBUG_PRINTF("[%lu] MOUSE btn=0x%02X x=%d y=%d wheel=%d\n", now, r->mouse.buttons, r->mouse.x, r->mouse.y,
-                         r->mouse.wheel);
+            LOG_DEBUG(TAG, "[%lu] MOUSE btn=0x%02X x=%d y=%d wheel=%d", now, r->mouse.buttons, r->mouse.x, r->mouse.y,
+                      r->mouse.wheel);
 
             tud_hid_mouse_report(REPORT_ID_MOUSE, r->mouse.buttons, r->mouse.x, r->mouse.y, r->mouse.wheel, 0);
             break;
 
         case REPORT_ID_CONSUMER_CONTROL:
-            DEBUG_PRINTF("[%lu] CONSUMER usage=0x%04X\n", now, r->consumer.usage);
+            LOG_DEBUG(TAG, "[%lu] CONSUMER usage=0x%04X", now, r->consumer.usage);
 
             tud_hid_report(REPORT_ID_CONSUMER_CONTROL, &r->consumer.usage, sizeof(r->consumer.usage));
             break;
@@ -253,9 +252,9 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
             if (bufsize < 1) return;
 
             uint8_t const kbd_leds = buffer[0];
-            printf("Keyboard LEDs: %s %s %s\n", (kbd_leds & KEYBOARD_LED_CAPSLOCK) ? "CapsLock" : "",
-                   (kbd_leds & KEYBOARD_LED_NUMLOCK) ? "NumLock" : "",
-                   (kbd_leds & KEYBOARD_LED_SCROLLLOCK) ? "ScrollLock" : "");
+            LOG_INFO(TAG, "Keyboard LEDs: %s %s %s", (kbd_leds & KEYBOARD_LED_CAPSLOCK) ? "CapsLock" : "",
+                     (kbd_leds & KEYBOARD_LED_NUMLOCK) ? "NumLock" : "",
+                     (kbd_leds & KEYBOARD_LED_SCROLLLOCK) ? "ScrollLock" : "");
         }
     }
 }

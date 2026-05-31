@@ -1,8 +1,10 @@
 #include "pubsub_free.h"
 
-#include "middleware/debug.h"
+#include "middleware/log.h"
 #include "stdio.h"
 #include "stdlib.h"
+
+static const char* TAG = "pubsub";
 
 PubSubFree* pubsub_free_alloc() {
     PubSubFree* pubsub = (PubSubFree*)malloc(sizeof(PubSubFree));
@@ -31,7 +33,7 @@ void pubsub_free_subscribe(PubSubFree* pubsub, QueueHandle_t queue) {
             (QueueHandle_t*)realloc(pubsub->subs_queue, sizeof(QueueHandle_t) * (pubsub->subscribe_count + 1));
 
         if (tmp == NULL) {
-            printf("[PubSub] Subscribe err: No memory!\n");
+            LOG_ERROR(TAG, "Subscribe err: No memory!");
             xSemaphoreGive(pubsub->mutex);
             return;
         }
@@ -80,7 +82,7 @@ void pubsub_free_notify(PubSubFree* pubsub, void* msg) {
     if (xSemaphoreTake(pubsub->mutex, portMAX_DELAY) == pdTRUE) {
         for (size_t i = 0; i < pubsub->subscribe_count; i++) {
             if (xQueueSend(pubsub->subs_queue[i], msg, 0) != pdTRUE) {
-                // printf("[PubSub] Notify err: Queue %d full\n", (int)i);
+                LOG_WARN(TAG, "Notify err: Queue %d full", (int)i);
             }
         }
         xSemaphoreGive(pubsub->mutex);

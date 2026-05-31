@@ -2,9 +2,9 @@
 
 #include "FreeRTOS.h"
 #include "app/task_manager/task_manager.h"
-#include "debug.h"
 #include "hal/hal.h"
 #include "hal/hal_gpio.h"
+#include "log.h"
 #include "stdio.h"
 #include "stdlib.h"
 #include "task.h"
@@ -25,6 +25,8 @@ typedef struct {
     PubSubFree* pubsub;
 } Input;
 
+static const char* TAG = "INPUT";
+
 static Input* input = NULL;
 
 static void input_timer_callback(TimerHandle_t xTimer) {
@@ -36,21 +38,13 @@ static void input_timer_callback(TimerHandle_t xTimer) {
 
 const char* input_event_get_name(InputEventType event_type) {
     switch (event_type) {
-        case INPUT_EVENT_TYPE_PRESS:
-            return "Press";
-            break;
+        case INPUT_EVENT_TYPE_PRESS: return "Press"; break;
 
-        case INPUT_EVENT_TYPE_LONG_PRESS:
-            return "Long";
-            break;
+        case INPUT_EVENT_TYPE_LONG_PRESS: return "Long"; break;
 
-        case INPUT_EVENT_TYPE_RELEASE:
-            return "Release";
-            break;
+        case INPUT_EVENT_TYPE_RELEASE: return "Release"; break;
 
-        default:
-            return "wtf?";
-            break;
+        default: return "wtf?"; break;
     }
 }
 
@@ -98,8 +92,8 @@ void input_task(void* params) {
                     input_event.key = input_pin.gpio->key;
                     pubsub_free_notify(input->pubsub, &input_event);
 
-                    DEBUG_PRINTF("Buton Key: %d - Input Event: %s - Press(ms): %d\n", input_pin.gpio->key,
-                                 input_event_get_name(input_event.type), input_pin.press_count_ms);
+                    LOG_DEBUG(TAG, "Buton Key: %d - Input Event: %s - Press(ms): %d", input_pin.gpio->key,
+                              input_event_get_name(input_event.type), input_pin.press_count_ms);
                 }
 
                 input->states[i].press_count_ms = 0;

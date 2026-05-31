@@ -11,6 +11,6 @@ typedef void (*DuckyEventCallback)(DuckyEventType *event);
 
 void ducky_init();
 void ducky_task();
-void ducky_play_script(char* payload_name);
+void ducky_play_script(const char* payload_name);
 void ducky_event_subscribe(DuckyEventCallback callback);
 void ducky_event_unsubscribe(DuckyEventCallback callback);

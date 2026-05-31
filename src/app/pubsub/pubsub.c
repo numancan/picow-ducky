@@ -1,6 +1,6 @@
 #include "pubsub.h"
 
-#include "middleware/debug.h"
+#include "middleware/log.h"
 #include "stdlib.h"
 
 PubSub* pubsub_alloc() {
@@ -20,17 +20,15 @@ void pubsub_dealloc(PubSub* pubsub) {
 
 void pubsub_subscribe(PubSub* pubsub, void* callback) {
     if (pubsub == NULL || callback == NULL) {
-        DEBUG_PRINTF(
-            "pubsub_subscribe err: Invalid arguments (pubsub or callback is NULL)!\n");
+        printf("pubsub_subscribe err: Invalid arguments (pubsub or callback is NULL)!\n");
         return;
     }
 
-    PubSubCallback* tmp = (PubSubCallback*)realloc(
-        pubsub->subs_callbacks, sizeof(PubSubCallback) * (pubsub->subscribe_count + 1));
+    PubSubCallback* tmp =
+        (PubSubCallback*)realloc(pubsub->subs_callbacks, sizeof(PubSubCallback) * (pubsub->subscribe_count + 1));
 
     if (tmp == NULL) {
-        DEBUG_PRINTF("pubsub_subscribe err: No memory for realloc! (current count: %u)\n",
-                     pubsub->subscribe_count);
+        printf("pubsub_subscribe err: No memory for realloc! (current count: %u)\n", pubsub->subscribe_count);
         return;
     }
 
@@ -41,13 +39,12 @@ void pubsub_subscribe(PubSub* pubsub, void* callback) {
 
 void pubsub_unsubscribe(PubSub* pubsub, void* callback) {
     if (pubsub == NULL || callback == NULL) {
-        DEBUG_PRINTF(
-            "pubsub_unsubscribe err: Invalid arguments (pubsub or callback is NULL)!\n");
+        printf("pubsub_unsubscribe err: Invalid arguments (pubsub or callback is NULL)!\n");
         return;
     }
 
     if (pubsub->subscribe_count == 0 || pubsub->subs_callbacks == NULL) {
-        DEBUG_PRINTF("pubsub_unsubscribe err: No subscribers to remove!\n");
+        printf("pubsub_unsubscribe err: No subscribers to remove!\n");
         return;
     }
 
@@ -60,7 +57,7 @@ void pubsub_unsubscribe(PubSub* pubsub, void* callback) {
     }
 
     if (index == -1) {
-        DEBUG_PRINTF("pubsub_unsubscribe: Callback not found in list!\n");
+        printf("pubsub_unsubscribe: Callback not found in list!\n");
         return;
     }
 
@@ -70,11 +67,11 @@ void pubsub_unsubscribe(PubSub* pubsub, void* callback) {
 
     pubsub->subscribe_count--;
 
-    PubSubCallback* tmp = (PubSubCallback*)realloc(
-        pubsub->subs_callbacks, sizeof(PubSubCallback) * pubsub->subscribe_count);
+    PubSubCallback* tmp =
+        (PubSubCallback*)realloc(pubsub->subs_callbacks, sizeof(PubSubCallback) * pubsub->subscribe_count);
 
     if (tmp == NULL) {
-        DEBUG_PRINTF("pubsub_unsubscribe warn: realloc failed, keeping old pointer.\n");
+        printf("pubsub_unsubscribe warn: realloc failed, keeping old pointer.\n");
         return;
     }
 

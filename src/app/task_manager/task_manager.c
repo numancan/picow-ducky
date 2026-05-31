@@ -21,7 +21,8 @@ typedef struct {
 } task_config_t;
 
 static task_config_t tasks[TASK_MANAGER_TASK_COUNT] = {
-    [TASK_MANAGER_TASK_USB_HID] = {usb_device_task, "usb_device", 1024, configMAX_PRIORITIES - 1, NULL, false, usb_device_init},
+    [TASK_MANAGER_TASK_USB_HID] = {usb_device_task, "usb_device", 1024, configMAX_PRIORITIES - 1, NULL, false,
+                                   usb_device_init},
     [TASK_MANAGER_TASK_INPUT] = {input_task, "input", 512, tskIDLE_PRIORITY + 4, NULL, true, input_init},
     [TASK_MANAGER_TASK_DUCKY] = {ducky_task, "ducky", 1024, tskIDLE_PRIORITY + 3, NULL, true, ducky_init},
     [TASK_MANAGER_TASK_WEB_SERVER] = {web_server_task, "webserver", 1024, tskIDLE_PRIORITY + 2, NULL, true, NULL},
