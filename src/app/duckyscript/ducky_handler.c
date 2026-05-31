@@ -9,10 +9,8 @@
 #include "class/hid/hid.h"
 #include "hid/usb_device.h"
 #include "hid/usb_hid.h"
-#include "middleware/debug.h"
 #include "pico/stdlib.h"
 #include "task.h"
-
 
 static uint32_t default_delay_ms = 0;
 static uint32_t default_delay_fuzz = 0;
