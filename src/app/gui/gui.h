@@ -2,6 +2,9 @@
 
 #include <stdint.h>
 
-typedef struct Gui Gui;
+#include "gui/view_manager.h"
 
-void gui_task(void *pvParameters);
+void gui_init();
+void gui_task(void* pvParameters);
+
+ViewManager* gui_get_view_manager();

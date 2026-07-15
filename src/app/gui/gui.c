@@ -1,61 +1,78 @@
-#include "gui.h"
+#include <stdbool.h>
 
-#include <stdio.h>
-#include <stdlib.h>
-
-#include "duckyscript/ducky_view.h"
-#include "hal/hal_display.h"
-#include "menu_view.h"
-#include "middleware/input.h"
-#include "pico/stdlib.h"
-#include "settings/settings_view.h"
-#include "view_manager.h"
-#include "hal/hal_power.h"
+#include "FreeRTOS.h"
 #include "app/task_manager/task_manager.h"
+#include "hal/hal_display.h"
+#include "input.h"
+#include "middleware/sys_fault.h"
+#include "modules/menu.h"
+#include "queue.h"
+#include "task.h"
+#include "u8g2.h"
+#include "view_ids.h"
+#include "view_manager.h"
 
-static void sleep_action() {
-    hal_power_deep_sleep();
-}
+#define GUI_INPUT_QUEUE_DEPTH 6
+#define GUI_TICK_PERIOD_MS 100
 
 static u8g2_t u8g2;
-ViewManager view_manager;
-QueueHandle_t input_queue = NULL;
+static ViewManager view_manager;
+static Menu main_menu;
+static MenuItem main_items[2];
 
-void gui_task(void *pvParameters) {
+static void switch_to_ducky_cb(void* context) {
+    ViewManager* vm = (ViewManager*)context;
+    view_manager_push(vm, VIEW_ID_DUCKY);
+}
+
+static void switch_to_net_manager_cb(void* context) {
+    ViewManager* vm = (ViewManager*)context;
+    view_manager_push(vm, VIEW_ID_NET_MANAGER);
+}
+
+ViewManager* gui_get_view_manager() { return &view_manager; }
+
+void gui_init() {
+    view_manager_init(&view_manager, &u8g2);
+
+    menu_init_fixed(&main_menu, "Main Menu", main_items, count_of(main_items));
+    menu_add_item(&main_menu, "Ducky", switch_to_ducky_cb, &view_manager);
+    menu_add_item(&main_menu, "Net Manager", switch_to_net_manager_cb, &view_manager);
+
+    view_manager_add_view(&view_manager, VIEW_ID_MENU, menu_get_view(&main_menu));
+}
+
+void gui_task(void* pvParameters) {
     (void)pvParameters;
+
     hal_display_init(&u8g2);
 
-    u8g2_SetFont(&u8g2, u8g2_font_profont11_tr);
-    u8g2_SetDrawColor(&u8g2, 1);
+    view_manager_push(&view_manager, VIEW_ID_MENU);
 
-    input_queue = xQueueCreate(6, sizeof(InputEvent*));
-    pubsub_free_subscribe(input_get_pubsub(), input_queue);
-
-    View main_view;
-    View settings_view;
-    View ducky_view;
-
-    settings_view_init(&settings_view, &main_view);
-    ducky_view_init(&ducky_view, &main_view);
-
-    MenuItem main_items[] = {MENU_ITEM_SUBMENU("Play", &ducky_view),
-                             MENU_ITEM_SUBMENU("Settings", &settings_view),
-                             MENU_ITEM_ACTION("Sleep", sleep_action)};
-
-    Menu main_menu = {
-        .title = "Main Menu", .items = main_items, .item_count = count_of(main_items)};
-
-    menu_view_init(&main_view, &main_menu, NULL);
-
-    view_manager_init(&view_manager, &u8g2, &main_view);
-
-    InputEvent tmp_input_event;
+    // TODO: no need pubsub maybe use pico-sdk queue_try_add
+    QueueHandle_t input_queue = input_subscribe(GUI_INPUT_QUEUE_DEPTH);
+    InputEvent input_event;
+    TickType_t last_tick = xTaskGetTickCount();
 
     while (1) {
-        view_manager_draw(&view_manager);
+        /* Drain the queue, processing input before drawing so changes show
+         * this frame. */
+        while (xQueueReceive(input_queue, &input_event, 0) == pdTRUE) {
+            view_manager_input(&view_manager, &input_event);
+        }
 
-        if (xQueueReceive(input_queue, &tmp_input_event, 0) == pdTRUE) {
-            view_manager_input(&view_manager, &tmp_input_event);
+        TickType_t now = xTaskGetTickCount();
+        if (now - last_tick >= pdMS_TO_TICKS(GUI_TICK_PERIOD_MS)) {
+            last_tick = now;
+            if (view_manager_tick(&view_manager)) {
+                view_manager_request_redraw(&view_manager);
+            }
+        }
+
+        /* needs_redraw is set by consumed input, view switches, and (later)
+         * worker updates. */
+        if (view_manager_needs_redraw(&view_manager)) {
+            view_manager_draw(&view_manager);
         }
 
         if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10))) {
@@ -63,14 +80,8 @@ void gui_task(void *pvParameters) {
         }
     }
 
-    // Cleanup
-    if (input_queue != NULL) {
-        pubsub_free_unsubscribe(input_get_pubsub(), input_queue);
-        vQueueDelete(input_queue);
-        input_queue = NULL;
-    }
+    input_unsubscribe(input_queue);
 
-    printf("[GUI] Task stopping...\n");
     task_manager_report_stopped(TASK_MANAGER_TASK_GUI);
     vTaskDelete(NULL);
 }
