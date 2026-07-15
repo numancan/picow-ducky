@@ -1,10 +1,11 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
+#include "middleware/enum_gen.h"
 #include "tusb.h"
-#include "usb_descriptors.h"
 
 #define HID_STRING_TO_MODIFIER                                                                    \
     {"CTRL", KEYBOARD_MODIFIER_LEFTCTRL}, {"CONTROL", KEYBOARD_MODIFIER_LEFTCTRL},                \
@@ -17,6 +18,7 @@
 
 #define MODIFIER_ARRAY_SIZE sizeof(modifier_conv_table) / sizeof(modifier_conv_table[0])
 
+// $EXPORT=NAME,KEYCODE
 #define HID_STRING_TO_SPECIAL_KEY                                                                                     \
     {"CTRL", HID_KEY_CONTROL_LEFT}, {"RCTRL", HID_KEY_CONTROL_RIGHT}, {"RIGHTCTRL", HID_KEY_CONTROL_RIGHT},           \
         {"CONTROL", HID_KEY_CONTROL_LEFT}, {"SHIFT", HID_KEY_SHIFT_LEFT}, {"RSHIFT", HID_KEY_SHIFT_RIGHT},            \
@@ -49,6 +51,7 @@
 
 #define SPECIAL_KEY_ARRAY_SIZE sizeof(special_conv_table) / sizeof(special_conv_table[0])
 
+// $EXPORT=NAME,USAGE
 #define HID_STRING_TO_CONSUMER_KEY                                                                          \
     {"MK_VOLUP", HID_USAGE_CONSUMER_VOLUME_INCREMENT}, {"MK_VOLDOWN", HID_USAGE_CONSUMER_VOLUME_DECREMENT}, \
         {"MK_MUTE", HID_USAGE_CONSUMER_MUTE}, {"MK_PREV", HID_USAGE_CONSUMER_SCAN_PREVIOUS},                \
@@ -58,12 +61,30 @@
 
 #define CONSUMER_KEY_ARRAY_SIZE sizeof(consumer_conv_table) / sizeof(consumer_conv_table[0])
 
+// NOTE: The HID_STRING_TO_* macros and layout tables below reference TinyUSB HID
+// constants (HID_KEY_*, KEYBOARD_MODIFIER_*, HID_USAGE_CONSUMER_*). They are only
+// expanded in hid_report.c, which includes "tusb.h". This header deliberately
+// does NOT include tusb.h so it can be used by the BLE backend without pulling in
+// TinyUSB's hid_report_type_t (which collides with btstack's).
 typedef enum {
-    HID_KEY_LAYOUT_US_Q,
-    HID_KEY_LAYOUT_TR_Q,
-} HIDLayout;
+    REPORT_ID_KEYBOARD = 1,
+    REPORT_ID_MOUSE,
+    REPORT_ID_CONSUMER_CONTROL,
+    REPORT_ID_GAMEPAD,
+    REPORT_ID_COUNT,
+} HIDReportKind;
 
-void hid_report_set_layout(HIDLayout layout);
+// $EXPORT=ID,STATUS_NAME
+#define HID_STATUS_LIST(X)                                                                                       \
+    X(HID_STATUS_OK, "OK")                                                                                       \
+    X(HID_STATUS_UNINITIALIZED, "UNINITIALIZED") /* Driver/stack not yet started or stoped. */                   \
+    X(HID_STATUS_DISCONNECTED, "DISCONNECTED")   /* Device (BLE/USB) working but not connected */                \
+    X(HID_STATUS_BUSY, "BUSY")                   /* Connected but buffer is full; previous data not sent yet. */ \
+    X(HID_STATUS_SUSPENDED, "SUSPENDED")         /* Host (PC/phone) is suspended and not accepting data. */      \
+    X(HID_STATUS_TIMEOUT, "TIMEOUT")                                                                             \
+    X(HID_STATUS_UNKNOWN, "UNKNOWN")
+
+DECLARE_ENUM(HidStatus, HID_STATUS_COUNT, HID_STATUS_LIST)
 
 typedef struct {
     HIDReportKind kind;
@@ -87,23 +108,19 @@ typedef struct {
     };
 } HIDReport;
 
-void usb_hid_init(void);
-void usb_hid_deinit(void);
+HidStatus hid_report_key(uint8_t modifier, uint8_t keycode);
+HidStatus hid_report_keys(uint8_t modifier, const uint8_t keycodes[6]);
+HidStatus hid_report_char(char c, uint32_t char_delay);
+HidStatus hid_report_string(const char* str, uint32_t char_delay);
 
-void usb_hid_report_key(uint8_t modifier, uint8_t keycode);
-void usb_hid_report_keys(uint8_t modifier, const uint8_t keycodes[6]);
-void usb_hid_report_char(char c);
-void usb_hid_report_string(const char* str);
+HidStatus hid_report_mouse_move(int8_t x, int8_t y);
+HidStatus hid_report_mouse_click(uint8_t buttons);
+HidStatus hid_report_mouse_scroll(int8_t wheel);
+HidStatus hid_report_consumer(uint16_t usage);
 
-void usb_hid_report_mouse_move(int8_t x, int8_t y);
-void usb_hid_report_mouse_click(uint8_t buttons);
-void usb_hid_report_mouse_scroll(int8_t wheel);
-void usb_hid_report_consumer(uint16_t usage);
+const char* hid_report_status_name(HidStatus status);
 
-uint8_t usb_hid_report_str_to_mod(const char* str);
-uint8_t usb_hid_report_str_to_special(const char* str);
-uint8_t usb_hid_report_char_to_keycode(char c, uint8_t* modifier);
-uint16_t usb_hid_report_str_to_consumer(const char* str);
-
-void usb_hid_report_set_char_delay_ms(uint32_t ms);
-void usb_hid_report_set_char_delay_fuzz(uint32_t fuzz_ms);
+uint8_t hid_report_str_to_mod(const char* str);
+uint8_t hid_report_str_to_special(const char* str);
+uint16_t hid_report_str_to_consumer(const char* str);
+uint8_t hid_report_char_to_keycode(char c, uint8_t* modifier);

@@ -1,41 +1,40 @@
 #include "usb_device.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "FreeRTOS.h"
+#include "app/task_manager/task_manager.h"
 #include "bsp/board_api.h"
+#include "middleware/log.h"
 #include "semphr.h"
 #include "task.h"
 #include "timers.h"
+#include "tusb.h"
 
-// Increase stack size when debug log is enabled
-#define USBD_STACK_SIZE (3 * configMINIMAL_STACK_SIZE / 2) * (CFG_TUSB_DEBUG ? 2 : 1)
+static const char* TAG = "USB_DEVICE";
 
-// CFG_TUSB_OS
-
-void usb_device_init() { board_init(); }
+// tud_task_ext() to observe the stop request when the transport is torn down.
+#define USB_TASK_POLL_MS 10
 
 // USB Device Driver task
 void usb_device_task(void* param) {
     (void)param;
 
-    // This should be called after scheduler/kernel is started.
-    // Otherwise it could cause kernel issue since USB IRQ handler does use RTOS queue API.
-    tusb_rhport_init_t dev_init = {.role = TUSB_ROLE_DEVICE, .speed = TUSB_SPEED_AUTO};
-    tusb_init(BOARD_TUD_RHPORT, &dev_init);
+    tud_init(BOARD_TUD_RHPORT);
 
-    if (board_init_after_tusb) {
-        board_init_after_tusb();
-    }
-
-    // TickType_t wake = xTaskGetTickCount();
     while (1) {
-        tud_task();
-
-        // vTaskDelay(pdMS_TO_TICKS(1));
-        // if (tud_suspended() || !tud_connected()) xTaskDelayUntil(&wake, pdMS_TO_TICKS(1));
+        tud_task_ext(USB_TASK_POLL_MS, false);
+        if (ulTaskNotifyTake(pdTRUE, 0)) break;
     }
+
+    tud_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(10));
+    tud_deinit(BOARD_TUD_RHPORT);
+
+    task_manager_report_stopped(TASK_MANAGER_TASK_USB_DEVICE);
+    vTaskDelete(NULL);
 }
 
 //--------------------------------------------------------------------+
@@ -43,16 +42,16 @@ void usb_device_task(void* param) {
 //--------------------------------------------------------------------+
 
 // Invoked when device is mounted
-void tud_mount_cb(void) { printf("USB Device Mounted\n"); }
+void tud_mount_cb(void) { LOG_INFO(TAG, "USB Device Mounted"); }
 
 // Invoked when device is unmounted
-void tud_umount_cb(void) { printf("USB Device Unmounted\n"); }
+void tud_umount_cb(void) { LOG_INFO(TAG, "USB Device Unmounted"); }
 
 // Invoked when usb bus is suspended
 void tud_suspend_cb(bool remote_wakeup_en) {
     (void)remote_wakeup_en;
-    printf("USB Device Suspended\n");
+    LOG_INFO(TAG, "USB Device Suspended");
 }
 
 // Invoked when usb bus is resumed
-void tud_resume_cb(void) { printf("USB Device Resumed\n"); }
+void tud_resume_cb(void) { LOG_INFO(TAG, "USB Device Resumed"); }
