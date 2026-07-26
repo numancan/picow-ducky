@@ -154,7 +154,7 @@ const uint8_t hid_ble_descriptor_keyboard_mouse_consumer[] = {
     0x15,
     0x00,  //   Logical Minimum (0)
     0x25,
-    0xff,  //   Logical Maximum (1)
+    0xff,  //   Logical Maximum (255)
     0x05,
     0x07,  //   Usage Page (Key codes)
     0x19,
@@ -267,9 +267,12 @@ static void hid_ble_handle_packet(uint8_t packet_type, uint16_t channel, uint8_t
 
 typedef struct {
     bool is_initialized;
+    // Set for the duration of hid_ble_stop() so the disconnect handler knows
+    // this is an intentional teardown and must not re-enable advertising.
+    volatile bool stopping;
     uint8_t battery_level;
     volatile hci_con_handle_t connection_handle;
-    bool input_reports_enabled;
+    volatile bool input_reports_enabled;
     // One report in flight at a time, flushed in CAN_SEND_NOW.
     uint8_t pending_id;
     uint8_t pending_data[8];
@@ -305,17 +308,15 @@ const uint8_t advertising_data[] = {
     BLUETOOTH_DATA_TYPE_FLAGS,
     0x06,
     // Name
-    0x0a,
+    0x08,
     BLUETOOTH_DATA_TYPE_COMPLETE_LOCAL_NAME,
-    'H',
-    'I',
-    'D',
-    ' ',
-    'C',
+    'p',
+    'i',
+    'c',
     'o',
-    'm',
-    'b',
-    'o',
+    'z',
+    'a',
+    'p',
     // 16-bit Service UUIDs
     0x03,
     BLUETOOTH_DATA_TYPE_COMPLETE_LIST_OF_16_BIT_SERVICE_CLASS_UUIDS,
@@ -425,7 +426,6 @@ static HidStatus hid_ble_send_report(const HIDReport* report) {
 
     ble_state.send_registration.callback = &hid_ble_request_can_send_now;
     btstack_run_loop_execute_on_main_thread(&ble_state.send_registration);
-    // btstack_run_loop_freertos_execute_code_on_main_thread(&ble_state.send_registration);
 
     if (xSemaphoreTake(ble_state.sent_semaphore, pdMS_TO_TICKS(BLE_SEND_TIMEOUT_MS)) == pdFAIL) {
         LOG_WARN(TAG, "BLE send timeout (CAN_SEND_NOW not received)");
@@ -440,13 +440,12 @@ static HidStatus hid_ble_send_report(const HIDReport* report) {
 }
 
 static bool hid_ble_start(void) {
-    // Use RADIO_USER_KEEPALIVE to prevent de-init failure
     if (radio_acquire(RADIO_USER_KEEPALIVE) != 0) {
         LOG_ERROR(TAG, "radio acquire fail");
         return false;
     }
+    ble_state.stopping = false;
 
-    // Acquire async_context lock before accessing BTstack backend (race condition prevention)
     async_context_acquire_lock_blocking(cyw43_arch_async_context());
 
     if (!ble_state.is_initialized) {
@@ -473,17 +472,36 @@ static void hid_ble_stop_on_run_loop(void* context) {
     if (ble_state.connection_handle != HCI_CON_HANDLE_INVALID) {
         gap_disconnect(ble_state.connection_handle);
     }
+    if (hci_get_state() == HCI_STATE_OFF) {
+        // Already off (double stop, or stop before power-on completed):
+        // no BTSTACK_EVENT_STATE transition will fire, so release the
+        // waiter directly instead of letting it burn the full timeout.
+        xSemaphoreGive(ble_state.teardown_semaphore);
+        return;
+    }
     hci_power_control(HCI_POWER_OFF);
 }
 
 static void hid_ble_stop(void) {
+    if (!ble_state.is_initialized) return;
+
+    // Tell the disconnect handler not to re-enable advertising while we
+    // tear down; the disconnect we may trigger below is intentional.
+    ble_state.stopping = true;
+
     xSemaphoreTake(ble_state.teardown_semaphore, 0);
     ble_state.teardown_registration.callback = &hid_ble_stop_on_run_loop;
     btstack_run_loop_execute_on_main_thread(&ble_state.teardown_registration);
-    if (xSemaphoreTake(ble_state.teardown_semaphore, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    if (xSemaphoreTake(ble_state.teardown_semaphore, pdMS_TO_TICKS(2000)) != pdTRUE) {
         LOG_WARN(TAG, "stop timeout");
     }
+
     ble_state.connection_handle = HCI_CON_HANDLE_INVALID;
+    ble_state.input_reports_enabled = false;
+    ble_state.stopping = false;
+
+    // Releasing cyw43 in runtime is not safe because of ble stack.
+    // radio_release(RADIO_USER_BLE);
 }
 
 static void hid_ble_handle_packet(uint8_t packet_type, uint16_t channel, uint8_t* packet, uint16_t size) {
@@ -513,6 +531,13 @@ static void hid_ble_handle_packet(uint8_t packet_type, uint16_t channel, uint8_t
             LOG_INFO(TAG, "Disconnected, reason=0x%02x", hci_event_disconnection_complete_get_reason(packet));
             ble_state.connection_handle = HCI_CON_HANDLE_INVALID;
             ble_state.input_reports_enabled = false;
+            // NOTE: radio_release() removed from here -- radio ownership is
+            // tied to start()/stop(), not to the link state.
+            if (!ble_state.stopping) {
+                // Host-initiated (or link-loss) disconnect: become
+                // discoverable again so the host can reconnect.
+                gap_advertisements_enable(1);
+            }
             break;
         case SM_EVENT_JUST_WORKS_REQUEST:
             LOG_DEBUG(TAG, "Just Works requested");
@@ -520,7 +545,7 @@ static void hid_ble_handle_packet(uint8_t packet_type, uint16_t channel, uint8_t
             break;
         case SM_EVENT_NUMERIC_COMPARISON_REQUEST:
             LOG_DEBUG(TAG, "Numeric comparison: %" PRIu32, sm_event_numeric_comparison_request_get_passkey(packet));
-            sm_numeric_comparison_confirm(sm_event_passkey_display_number_get_handle(packet));
+            sm_numeric_comparison_confirm(sm_event_numeric_comparison_request_get_handle(packet));
             break;
         case SM_EVENT_PASSKEY_DISPLAY_NUMBER:
             LOG_INFO(TAG, "Display Passkey: %" PRIu32, sm_event_passkey_display_number_get_passkey(packet));

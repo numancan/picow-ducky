@@ -1,125 +1,176 @@
 #include "ducky_view.h"
 
+#include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
-#include "app/gui/gui.h"
-#include "app/gui/menu_view.h"
-#include "app/gui/ui_common.h"
-#include "app/gui/view_manager.h"
 #include "ducky.h"
-#include "middleware/sd_card.h"
+#include "ducky_config.h"
+#include "ducky_settings_view.h"  // also provides DuckySettings
+#include "gui/elements.h"
+#include "gui/modules/menu.h"
+#include "gui/view_manager.h"
+#include "middleware/fat_io.h"
+#include "middleware/log.h"
+#include "middleware/sys_fault.h"
+#include "payload.h"
 
-static char** payload_list = NULL;
-static MenuItem* ducky_items = NULL;
-uint16_t payload_list_count = 0;
+static const char* TAG = "DUCKY_VIEW";
 
-static char selected_payload[64] = "";
+static void play_menu_cb(void* context) {
+    DuckyView* dv = (DuckyView*)context;
+    view_manager_push(dv->view_manager, VIEW_ID_DUCKY_PAYLOADS);
+}
 
-static Menu ducky_menu = {
-    .title = "Payloads",
-    .items = NULL,
-    .item_count = 0,
-};
+static void settings_menu_cb(void* context) {
+    DuckyView* dv = (DuckyView*)context;
+    view_manager_push(dv->view_manager, VIEW_ID_DUCKY_SETTINGS);
+}
 
-static View ducky_play_view;
+static void play_payload_cb(void* context) {
+    DuckyView* dv = (DuckyView*)context;
+    // Copy the name out now: the list window cache is invalidated by the next payload_list_get.
+    const char* name = payload_list_get(&dv->payload_list, dv->payload_menu.selected);
+    snprintf(dv->selected_payload, sizeof(dv->selected_payload), "%s", name);
+    view_manager_push(dv->view_manager, VIEW_ID_DUCKY_TRANSPORT);
+}
 
-static void ducky_view_enter(View* view) {
-    char payload_single_string[(20 * 24) + 24 + 1];
-    payload_list_count = sd_card_list_dir("/payloads", payload_single_string,
-                                          sizeof(payload_single_string), " ");
+static uint16_t ducky_get_count(void* context) {
+    DuckyView* dv = (DuckyView*)context;
+    // TODO: Maybe pop-up? and mounted check will be done by payload_list_init ?
+    /* SD may eject mid-view; report 0 so the menu never indexes a stale list. */
+    if (!fat_io_is_mounted()) return 0;
+    return (uint16_t)payload_list_count(&dv->payload_list);
+}
 
-    if (payload_list_count < 1) {
-        ducky_menu.item_count = 1;
-        ducky_items = malloc(sizeof(MenuItem) * 1);
-        ducky_items[0] = (MenuItem)MENU_ITEM_BACK("< Back");
-        ducky_menu.items = ducky_items;
-        return;
-    }
+static MenuItem ducky_get_item(void* context, uint16_t index) {
+    DuckyView* dv = (DuckyView*)context;
+    // The label points into the list's window cache, valid only until the next
+    // payload_list_get; the owner is passed as context so the callback can re-fetch by index.
+    const char* name = payload_list_get(&dv->payload_list, index);
+    return (MenuItem){.label = name, .callback = play_payload_cb, .callback_context = dv};
+}
 
-    payload_list = malloc(sizeof(char*) * payload_list_count);
-    ducky_items = malloc(sizeof(MenuItem) * (payload_list_count + 1));
+static void payload_view_enter(void* context) {
+    /* The view ctx is the Menu*; recover the owner from its dynamic context. */
+    Menu* menu = (Menu*)context;
+    DuckyView* dv = (DuckyView*)menu->model.dynamic.context;
 
-    char* payload_name = strtok(payload_single_string, " ");
+    ABORT_IF(!fat_io_is_mounted());
 
-    for (int i = 0; i < payload_list_count; i++) {
-        payload_list[i] = malloc(strlen(payload_name) + 1);
-        snprintf(payload_list[i], strlen(payload_name) + 1, "%s", payload_name);
+    menu->selected = 0;
 
-        ducky_items[i] = (MenuItem)MENU_ITEM_SUBMENU(payload_list[i], &ducky_play_view);
+    payload_list_init(&dv->payload_list);
+}
 
-        payload_name = strtok(NULL, " ");
-    }
-
-    // Add Back button at the end
-    ducky_items[payload_list_count] = (MenuItem)MENU_ITEM_BACK("< Back");
-
-    ducky_menu.item_count = payload_list_count + 1;
-    ducky_menu.items = ducky_items;
-
-    // Check bounds if we were previously selecting an item
-    if (ducky_menu.selected_index >= ducky_menu.item_count) {
-        ducky_menu.selected_index = 0;
-        ducky_menu.scroll_offset = 0;
+/* Replace self with the play view once the transport is ready; this view is a
+ * one-way gate and must not be revisited via back. */
+static void ducky_transport_advance_if_ready(DuckyView* dv) {
+    dv->last_status = hid_transport_status();
+    if (dv->last_status == HID_STATUS_OK) {
+        view_manager_replace(dv->view_manager, VIEW_ID_DUCKY_PLAY);
     }
 }
 
-static void ducky_view_exit(View* view) {
-    if (ducky_menu.item_count > 0 && ducky_menu.selected_index < payload_list_count) {
-        snprintf(selected_payload, sizeof(selected_payload), "%s",
-                 payload_list[ducky_menu.selected_index]);
+static void ducky_transport_view_draw(Canvas* canvas, void* context) {
+    DuckyView* dv = (DuckyView*)context;
+    elements_draw_header(canvas, "Transport");
+    elements_draw_str_right(canvas, 0, hid_transport_name(dv->settings->transporter));
+    elements_draw_list_row(canvas, ELEMENTS_HEADER_HEIGHT, 0, false, hid_report_status_name(dv->last_status));
+    elements_draw_list_row(canvas, ELEMENTS_HEADER_HEIGHT, 1, false, "Long press to menu");
+}
+
+static void ducky_transport_view_enter(void* context) {
+    DuckyView* dv = (DuckyView*)context;
+
+    ducky_transport_arm_request();
+    ducky_transport_advance_if_ready(dv);
+}
+
+static bool ducky_transport_view_tick(void* context) {
+    DuckyView* dv = (DuckyView*)context;
+    HidStatus prev = dv->last_status;
+    ducky_transport_advance_if_ready(dv);
+    return dv->last_status != prev;
+}
+
+static bool ducky_play_is_done(DuckyStatus status) { return status == DUCKY_STATUS_DONE; }
+
+static void ducky_play_view_draw(Canvas* canvas, void* context) {
+    DuckyView* dv = (DuckyView*)context;
+    DuckyStatus status = ducky_get_status();
+    elements_draw_header(canvas, dv->selected_payload);
+    elements_draw_list_row(canvas, ELEMENTS_HEADER_HEIGHT, 0, false, ducky_get_status_str(status));
+    const char* action_str = ducky_play_is_done(status) ? "Long press to menu" : "Press to stop";
+    elements_draw_list_row(canvas, ELEMENTS_HEADER_HEIGHT, 1, false, action_str);
+}
+
+static void ducky_play_view_enter(void* context) {
+    DuckyView* dv = (DuckyView*)context;
+    LOG_INFO(TAG, "Playing payload: %s", dv->selected_payload);
+    dv->last_ducky_status = ducky_get_status();
+    ducky_play_payload_request(dv->selected_payload);
+}
+
+static bool ducky_play_view_tick(void* context) {
+    DuckyView* dv = (DuckyView*)context;
+    DuckyStatus status = ducky_get_status();
+    if (status == dv->last_ducky_status) return false;
+    dv->last_ducky_status = status;
+    return true;
+}
+
+static bool ducky_play_view_input(const InputEvent* event, void* context) {
+    DuckyView* dv = (DuckyView*)context;
+
+    if (ducky_get_status() == DUCKY_STATUS_PLAYING && event->type == INPUT_EVENT_TYPE_LONG_PRESS &&
+        event->key == INPUT_KEY_DOWN) {
+        ducky_stop_payload_request();
+        return true;
+    } else if (ducky_play_is_done(ducky_get_status()) && event->type == INPUT_EVENT_TYPE_LONG_PRESS &&
+               event->key == INPUT_KEY_DOWN) {
+        view_manager_pop_to(dv->view_manager, VIEW_ID_DUCKY);
+        return true;
     }
 
-    if (ducky_items) {
-        free(ducky_items);
-        ducky_items = NULL;
-    }
-
-    ducky_menu.items = NULL;
-    if (!payload_list) return;
-    for (int i = 0; i < payload_list_count; i++) free(payload_list[i]);
-    free(payload_list);
-    payload_list = NULL;
-    payload_list_count = 0;
+    return true;
 }
 
-static void ducky_play_view_draw(View* view, u8g2_t* u8g2) {
-    u8g2_ClearBuffer(u8g2);
-    ui_draw_header(u8g2, "Playing Payload");
-
-    u8g2_SetDrawColor(u8g2, 1);
-    u8g2_SetFont(u8g2, u8g2_font_profont11_tr);
-    u8g2_DrawStr(u8g2, 10, 26, selected_payload);
-
-    u8g2_SendBuffer(u8g2);
-}
-
-static void ducky_play_view_enter(View* view) {
-    printf("Playing payload: %s\n", selected_payload);
-    ducky_play_script(selected_payload);
-}
-
-static void ducky_play_view_on_input(View* view, InputEvent* event,
-                                     ViewManager* view_manager) {
-    if (event->key == INPUT_KEY_SELECT || event->key == INPUT_KEY_DOWN) {
-        if (event->type == INPUT_EVENT_TYPE_PRESS) {
-            view_manager_change_view(view_manager, view->parent);
-        }
+static void ducky_menu_view_exit(void* context) {
+    DuckyView* dv = (DuckyView*)context;
+    if (!view_manager_stack_contains(dv->view_manager, VIEW_ID_DUCKY)) {
+        ducky_transport_disarm_request();
     }
 }
 
-void ducky_view_init(View* view, View* parent) {
-    menu_view_init(view, &ducky_menu, parent);
+void ducky_view_init(DuckyView* ducky_view, DuckySettings* settings, ViewManager* view_manager) {
+    ABORT_IF(ducky_view == NULL || view_manager == NULL);
 
-    view->on_enter = ducky_view_enter;
-    view->on_exit = ducky_view_exit;
+    ducky_view->view_manager = view_manager;
+    ducky_view->settings = settings;
 
-    // Setup ducky_play_view
-    ducky_play_view.draw = ducky_play_view_draw;
-    ducky_play_view.on_enter = ducky_play_view_enter;
-    ducky_play_view.on_exit = NULL;
-    ducky_play_view.on_input = ducky_play_view_on_input;
-    ducky_play_view.context = NULL;
-    ducky_play_view.parent = view;
+    menu_init_fixed(&ducky_view->ducky_menu, "Ducky", ducky_view->ducky_menu_items, DUCKY_MENU_ITEM_COUNT);
+    menu_add_item(&ducky_view->ducky_menu, "Play", play_menu_cb, ducky_view);
+    menu_add_item(&ducky_view->ducky_menu, "Settings", settings_menu_cb, ducky_view);
+    view_set_exit_callback(menu_get_view(&ducky_view->ducky_menu), ducky_menu_view_exit);
+
+    menu_init_dynamic(&ducky_view->payload_menu, "", ducky_get_item, ducky_get_count, ducky_view);
+    view_set_enter_callback(menu_get_view(&ducky_view->payload_menu), payload_view_enter);
+
+    view_set_draw_callback(&ducky_view->transport_view, ducky_transport_view_draw);
+    view_set_enter_callback(&ducky_view->transport_view, ducky_transport_view_enter);
+    view_set_tick_callback(&ducky_view->transport_view, ducky_transport_view_tick);
+    view_set_context(&ducky_view->transport_view, ducky_view);
+
+    view_set_draw_callback(&ducky_view->play_view, ducky_play_view_draw);
+    view_set_input_callback(&ducky_view->play_view, ducky_play_view_input);
+    view_set_enter_callback(&ducky_view->play_view, ducky_play_view_enter);
+    view_set_tick_callback(&ducky_view->play_view, ducky_play_view_tick);
+    view_set_context(&ducky_view->play_view, ducky_view);
+
+    view_manager_add_view(view_manager, VIEW_ID_DUCKY, menu_get_view(&ducky_view->ducky_menu));
+    view_manager_add_view(view_manager, VIEW_ID_DUCKY_PAYLOADS, menu_get_view(&ducky_view->payload_menu));
+    view_manager_add_view(view_manager, VIEW_ID_DUCKY_TRANSPORT, &ducky_view->transport_view);
+    view_manager_add_view(view_manager, VIEW_ID_DUCKY_PLAY, &ducky_view->play_view);
+
+    ducky_settings_view_init(&ducky_view->ducky_settings_view, view_manager, settings);
 }

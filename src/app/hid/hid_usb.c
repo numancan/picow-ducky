@@ -7,13 +7,12 @@
 #include "hid_usb.h"
 
 #include "FreeRTOS.h"
-#include "app/task_manager/task_manager.h"
 #include "device/usbd.h"
 #include "hid_report.h"
 #include "hid_transport.h"
 #include "middleware/log.h"
+#include "middleware/sys_fault.h"
 #include "semphr.h"
-#include "sys_fault.h"
 #include "task.h"
 #include "tusb.h"
 #include "usb_device.h"
@@ -45,7 +44,7 @@ static bool hid_usb_start(void) {
         PANIC_IF(usb_state.complete_semaphore == NULL, "USB sent semaphore alloc failed");
     }
 
-    return task_manager_start(TASK_MANAGER_TASK_USB_DEVICE);
+    return usb_device_start();
 }
 
 static void hid_usb_stop(void) {
@@ -54,13 +53,13 @@ static void hid_usb_stop(void) {
         usb_state.complete_semaphore = NULL;
     }
 
-    task_manager_stop(TASK_MANAGER_TASK_USB_DEVICE);
+    usb_device_request_task_stop();
 }
 
 const HidTransport* hid_usb_get_transport(void) { return &usb_state.transport; }
 
 static HidStatus hid_usb_get_status(void) {
-    if (!tud_inited() || !task_manager_is_created(TASK_MANAGER_TASK_USB_DEVICE)) {
+    if (!tud_inited() || !usb_device_is_running()) {
         return HID_STATUS_UNINITIALIZED;
     }
     if (!tud_mounted()) {

@@ -1,0 +1,8 @@
+#pragma once
+
+#define DUCKY_VIEWS                   \
+    ADD_VIEW(VIEW_ID_DUCKY)           \
+    ADD_VIEW(VIEW_ID_DUCKY_PAYLOADS)  \
+    ADD_VIEW(VIEW_ID_DUCKY_TRANSPORT) \
+    ADD_VIEW(VIEW_ID_DUCKY_PLAY)      \
+    ADD_VIEW(VIEW_ID_DUCKY_SETTINGS)

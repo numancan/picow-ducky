@@ -7,43 +7,25 @@
 extern "C" {
 #endif
 
-/**
- * @brief Halts the execution if the condition is true (Debug mode only).
- * In Release builds, this macro is completely stripped out by the compiler,
- * causing zero runtime overhead.
- */
+// Programmer-error check. Debug only: stripped entirely in release builds (zero cost).
 #define ABORT_IF(cond)           \
     do {                         \
         if (cond) assert(false); \
     } while (0)
 
-/**
- * @brief Silently halts the execution if the condition is true (Debug and Release).
- * Does not print any messages or utilize UART/USB interfaces.
- * Ideal for fatal hardware faults where standard IO might be compromised.
- */
+// Silent halt, no IO. Debug and release. For fatal hardware faults where UART/USB may be compromised.
 #define HARD_ABORT_IF(cond)                 \
     do {                                    \
         if (cond) hard_assertion_failure(); \
     } while (0)
 
-/**
- * @brief Triggers a system panic with a message if the condition is true (Debug and Release).
- * @param msg The error message to print (must be a string literal).
- * Note: The string literal will consume flash memory space in the final binary.
- */
+// Unrecoverable failure. Debug and release; msg is kept in flash (must be a string literal).
 #define PANIC_IF(cond, msg)   \
     do {                      \
         if (cond) panic(msg); \
     } while (0)
 
-/**
- * @brief Triggers a system panic if the condition is true.
- * In Debug builds, it prints the provided message.
- * In Release builds, it halts the system but discards the message string
- * to save flash memory space.
- * @param msg The error message (must be a string literal).
- */
+// Unrecoverable failure. msg is printed in debug builds only, stripped in release to save flash.
 #define PANIC_COMPACT_IF(cond, msg)   \
     do {                              \
         if (cond) panic_compact(msg); \

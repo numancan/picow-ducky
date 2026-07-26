@@ -8,6 +8,8 @@
 typedef struct {
     char command[DUCKY_MAX_COMMAND_LEN];
     char args[DUCKY_MAX_LINE_LEN];
-} ducky_line_t;
+} DuckyLine;
 
-bool ducky_parser_parse_line(char* line, ducky_line_t* parsed_line);
+// Split a raw line into command + args in place. Returns false on an empty or
+// oversized line.
+bool ducky_parse_line(char* line, DuckyLine* parsed_line);

@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>picozap</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+  <!-- shared session popup (arming -> running -> done) for payloads, live and consumer -->
+  <div class="gate-overlay hidden" id="gate-overlay">
+    <div class="gate-modal status-panel" id="gate-panel"></div>
+  </div>
+
+  <div class="shell">
+    <nav class="nav">
+      <div class="brand-row">
+        <div class="brand">
+          <div class="logo-mark">P</div>
+          <div class="brand-text">
+            <div class="brand-name">picozap</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="nav-tabs" id="nav-tabs">
+        <button class="tab active" data-tab="payloads">PAYLOADS</button>
+        <button class="tab" data-tab="live">LIVE</button>
+        <button class="tab" data-tab="consumer">REMOTE</button>
+        <button class="tab" data-tab="settings">SETTINGS</button>
+      </div>
+    </nav>
+
+    <main class="content">
+
+      <!-- PAYLOADS -->
+      <section class="view active" id="view-payloads">
+        <div class="view-header">
+          <div class="view-title">
+            <h1>PAYLOADS</h1>
+            <p class="view-sub" id="payloads-meta">5 files &middot; /flash/payloads</p>
+          </div>
+          <button class="btn-upload-inline" id="upload-btn-desktop" type="button">&#65291; UPLOAD</button>
+        </div>
+
+        <div class="payloads-body">
+          <div class="payloads-list-col">
+            <ul class="payload-list" id="payload-list"></ul>
+
+            <label class="upload-drop" id="upload-drop" for="upload-input">
+              <span>&#65291; UPLOAD .txt</span>
+            </label>
+            <input type="file" id="upload-input" accept=".txt" hidden>
+          </div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="view" id="view-settings">
+        <div class="view-header">
+          <div class="view-title">
+            <h1>SETTINGS</h1>
+            <p class="view-sub">device configuration</p>
+          </div>
+        </div>
+
+        <div class="settings-body" id="settings-body"></div>
+
+        <div class="settings-footer">
+          <button class="btn-save" id="btn-save" type="button">SAVE &#8615; FLASH</button>
+        </div>
+      </section>
+
+      <!-- LIVE -->
+      <section class="view" id="view-live">
+        <div class="view-header">
+          <div class="view-title">
+            <h1>LIVE</h1>
+            <p class="view-sub">instantly runnable mini script</p>
+          </div>
+          <button class="btn-send" id="btn-send" type="button">&#9658; SEND</button>
+        </div>
+
+        <div class="live-body">
+          <div class="editor-col">
+            <div class="editor" id="editor">
+              <div class="editor-gutter" id="editor-gutter"></div>
+              <div class="editor-input-wrap">
+                <pre class="editor-highlight" id="editor-highlight" aria-hidden="true"></pre>
+                <textarea class="editor-input" id="editor-input" spellcheck="false" autocapitalize="off"
+                  autocomplete="off"></textarea>
+              </div>
+              <div class="autocomplete hidden" id="autocomplete"></div>
+            </div>
+          </div>
+
+          <div class="commands-col" id="commands-col">
+            <div class="col-label">COMMANDS</div>
+            <div class="commands-list" id="commands-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CONSUMER -->
+      <section class="view" id="view-consumer">
+        <div class="view-header">
+          <div class="view-title">
+            <h1>CONSUMER CONTROL</h1>
+            <p class="view-sub">sends HID consumer usage codes</p>
+          </div>
+        </div>
+
+        <div class="consumer-body">
+          <div class="consumer-grid" id="consumer-grid"></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script>
+    // ---- data ----
+
+    // EXPORTS is injected at build time by tools/gen_web_content.py from the C `$EXPORT`
+    // markers (hid_layout.h, hid_transport.h, ducky_handler.h, hid_report.h). It falls back
+    // to an empty object when this file is opened directly, without the build step.
+    const EXPORTS = /*{{EXPORT}}*/{};
+
+    // UI-only hints for the command palette. Command names come from the firmware (EXPORTS);
+    // any command without an entry here just renders with no hint.
+    const COMMAND_HINTS = {
+      STRING: { hint: 'text', argHint: 'text' },
+      DELAY: { hint: 'wait ms', argHint: 'ms' },
+      REM: { hint: 'comment', argHint: 'text' },
+      GUI: { hint: 'modifier', argHint: 'key' },
+      CTRL: { hint: 'modifier', argHint: 'key' },
+      ALT: { hint: 'modifier', argHint: 'key' },
+      SHIFT: { hint: 'modifier', argHint: 'key' },
+      ENTER: { hint: 'key', argHint: '' },
+      TAB: { hint: 'key', argHint: '' },
+    };
+
+    // Every token the firmware accepts: named commands + special keys + consumer keys,
+    // deduped by name (named commands win on collisions such as CTRL).
+    const DUCKY_COMMANDS = [
+      ...(EXPORTS.DUCKY_COMMAND_LIST || []).map((e) => e.COMMAND_NAME),
+      ...(EXPORTS.HID_STRING_TO_SPECIAL_KEY || []).map((e) => e.NAME),
+      ...(EXPORTS.HID_STRING_TO_CONSUMER_KEY || []).map((e) => e.NAME),
+    ]
+      .filter((name, i, arr) => name && arr.indexOf(name) === i)
+      .map((name) => {
+        const h = COMMAND_HINTS[name] || {};
+        return { name, hint: h.hint || '', argHint: h.argHint || '' };
+      });
+
+    const LIVE_STARTER_SCRIPT = [
+      'DELAY 500',
+      'GUI r',
+      'STRING notepad',
+      'ENTER',
+    ];
+
+    // `cmd` is the firmware consumer-key token (EXPORTS.HID_STRING_TO_CONSUMER_KEY), sent to
+    // the device as a one-line duckyscript command via /api/ducky/cmd.cgi?key=<cmd>.
+    const CONSUMER_BUTTONS = [
+      { id: 'prev', icon: '⏮', label: 'PREV', cmd: 'MK_PREV' },
+      { id: 'playpause', icon: '⏯', label: 'PLAY/PAUSE', primary: true, cmd: 'MK_PP' },
+      { id: 'next', icon: '⏭', label: 'NEXT', cmd: 'MK_NEXT' },
+      { id: 'volDown', icon: '−', label: 'VOL −', cmd: 'MK_VOLDOWN' },
+      { id: 'mute', icon: '⊘', label: 'MUTE', toggle: true, cmd: 'MK_MUTE' },
+      { id: 'volUp', icon: '+', label: 'VOL +', cmd: 'MK_VOLUP' },
+    ];
+
+    function formatElapsed(sec) {
+      const m = String(Math.floor(sec / 60)).padStart(2, '0');
+      const s = String(sec % 60).padStart(2, '0');
+      return `${m}:${s}`;
+    }
+
+    // Escape for both text and attribute contexts (quotes included) before it goes into innerHTML.
+    // Payload file names arrive from /upload, so they are untrusted.
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    // ---- gate (shared session popup for payloads/live/consumer) ----
+
+    // Single shared owner of the HID transport session. Every feature that sends anything
+    // (payloads, live script, consumer keys) goes through Gate.run(). The device status is the
+    // only source of truth: every run() re-reads it fresh, so the web never remembers an "armed"
+    // flag that could desync when the firmware disarms on its own (idle timeout). One centered
+    // popup drives the whole lifecycle -- waiting -> running -> done. WAITING's CANCEL is a purely
+    // local abort (no network call), letting the user back out if the host never enumerates;
+    // STOP and CLOSE end/dismiss a tracked run.
+    const Gate = (() => {
+      const POLL_WAIT_MS = 500; // cadence while waiting for the host
+      const POLL_RUN_MS = 1000; // cadence once running
+
+      const overlayEl = document.getElementById('gate-overlay');
+      const panelEl = document.getElementById('gate-panel');
+
+      let latest = null; // last successful /status.shtml payload, or null before the first poll
+      let seq = 0; // bumped by run()/close(); a stale async run() flow checks this and bails
+      let polling = false;
+      let elapsedTimer = null;
+
+      // The visible session: one run of a payload / live script / consumer key. null when the
+      // popup is closed. Tracked runs (payload/live) carry running -> done + elapsed + STOP;
+      // fire-and-forget runs (consumer) never reach 'running'.
+      let session = null; // { phase: 'waiting'|'running'|'done', label, track, fire, elapsed, ... } | null
+
+      // ---- device status (single source of truth) ----
+
+      // The status index is in firmware enum order, so it doubles as the array index into
+      // EXPORTS.DUCKY_STATUS_LIST / EXPORTS.HID_STATUS_LIST.
+      function duckyId(data) {
+        if (data == null) return undefined;
+        return ((EXPORTS.DUCKY_STATUS_LIST || [])[data.status] || {}).ID;
+      }
+      function hidId(data) {
+        if (data == null) return undefined;
+        return ((EXPORTS.HID_STATUS_LIST || [])[data.transport] || {}).ID;
+      }
+      function hidReady(data) {
+        return hidId(data) === 'HID_STATUS_OK';
+      }
+      // Firmware-provided human label for the current HID status (shown while waiting so the user
+      // sees why the host isn't ready yet -- e.g. disconnected, suspended).
+      function hidName(data) {
+        if (data == null) return '';
+        return ((EXPORTS.HID_STATUS_LIST || [])[data.transport] || {}).DISPLAY_NAME || '';
+      }
+
+      // Arm is needed only when the transport is genuinely down: the ducky is IDLE (reached only
+      // by a disarm -- DONE never falls back to IDLE) or the HID stack is uninitialized. The other
+      // HID states (BUSY/SUSPENDED/TIMEOUT/DISCONNECTED) are transient -- the transport is up and
+      // we just wait for it to settle to OK, without re-arming.
+      function needsArm(data) {
+        return duckyId(data) === 'DUCKY_STATUS_IDLE' || hidId(data) === 'HID_STATUS_UNINITIALIZED';
+      }
+
+      async function fetchStatus() {
+        try {
+          const res = await fetch('/api/ducky/status.shtml', { cache: 'no-store' });
+          return await res.json();
+        } catch {
+          return null;
+        }
+      }
+
+      function transportName() {
+        return (latest && latest.transport_name) || '';
+      }
+
+      // ---- popup ----
+
+      function showOverlay() { overlayEl.classList.remove('hidden'); }
+      function hideOverlay() { overlayEl.classList.add('hidden'); }
+
+      function render() {
+        if (!session) return;
+
+        if (session.phase === 'waiting') {
+          const caption = [hidName(latest), transportName() ? `via ${transportName()}` : '']
+            .filter(Boolean)
+            .join(' · ');
+          panelEl.innerHTML = `
+            <div class="status-label">STATUS</div>
+            <div class="status-row">
+              <span class="dot dot-running"></span>
+              <span class="status-text">WAITING FOR HOST&hellip;</span>
+            </div>
+            ${session.label ? `<div class="status-payload-name">${escapeHtml(session.label)}</div>` : ''}
+            ${caption ? `<div class="status-caption">${caption}</div>` : ''}
+            <button class="btn-stop" data-action="cancel">&#9632; CANCEL</button>
+          `;
+          return;
+        }
+
+        const running = session.phase === 'running';
+        panelEl.innerHTML = `
+          <div class="status-label">STATUS</div>
+          <div class="status-row">
+            <span class="dot ${running ? 'dot-running' : 'dot-stopped'}"></span>
+            <span class="status-text ${running ? '' : 'stopped'}">${running ? 'RUNNING' : 'DONE ✓'}</span>
+          </div>
+          ${session.label ? `<div class="status-payload-name">${escapeHtml(session.label)}</div>` : ''}
+          <div class="status-timer">${formatElapsed(session.elapsed)}</div>
+          <div class="status-caption">ELAPSED</div>
+          ${running
+            ? `<button class="btn-stop" data-action="stop">&#9632; STOP</button>`
+            : `<button class="btn-back" data-action="close">&#8635; CLOSE</button>`}
+        `;
+      }
+
+      function startElapsed() {
+        stopElapsed();
+        elapsedTimer = setInterval(() => {
+          if (!session) return;
+          session.elapsed += 1;
+          const el = panelEl.querySelector('.status-timer');
+          if (el) el.textContent = formatElapsed(session.elapsed);
+        }, 1000);
+      }
+      function stopElapsed() {
+        clearInterval(elapsedTimer);
+        elapsedTimer = null;
+      }
+
+      panelEl.addEventListener('click', (e) => {
+        const action = e.target.closest('[data-action]')?.dataset.action;
+        if (action === 'cancel' || action === 'close') close();
+        else if (action === 'stop') stop();
+      });
+
+      // Tracked run finished (device reported DONE, or the user hit STOP). Idempotent.
+      function finish() {
+        if (!session) return;
+        session.phase = 'done';
+        stopElapsed();
+        render();
+      }
+
+      // STOP button: tell the device to stop; the poll would confirm DONE, but we flip now for
+      // responsiveness (finish is idempotent).
+      function stop() {
+        fetch('/api/ducky/cmd.cgi?stop=1', { cache: 'no-store' }).catch(() => { });
+        finish();
+      }
+
+      // CANCEL / CLOSE: drop the session and hide the popup. Purely local -- no disarm request,
+      // the firmware owns disarming. The poll stops itself once it sees session === null.
+      function close() {
+        seq++;
+        session = null;
+        stopElapsed();
+        hideOverlay();
+      }
+
+      // ---- arming ----
+
+      // Send arm=1 only when the transport is genuinely down (needsArm), at most once per waiting
+      // session. Called on entry and on every waiting poll tick, so a transport that drops to
+      // IDLE/UNINITIALIZED mid-wait still gets armed.
+      function maybeArm() {
+        if (!session || session.phase !== 'waiting' || session.armSent) return;
+        if (!needsArm(latest)) return;
+        session.armSent = true;
+        fetch('/api/ducky/cmd.cgi?arm=1', { cache: 'no-store' }).catch(() => { });
+      }
+
+      // ---- poll loop (runs only while a session is open) ----
+
+      // Recursive setTimeout, not setInterval: the next tick is scheduled only once this one's
+      // fetch resolves, so a slow device/Wi-Fi response can never stack overlapping requests.
+      function ensurePolling() {
+        if (polling) return;
+        polling = true;
+        loop();
+      }
+      async function loop() {
+        if (!session) { polling = false; return; }
+        latest = await fetchStatus() ?? latest; // keep the last good status on a transient failure
+        if (!session) { polling = false; return; }
+        react();
+        if (!session) { polling = false; return; }
+        setTimeout(loop, session.phase === 'waiting' ? POLL_WAIT_MS : POLL_RUN_MS);
+      }
+
+      function react() {
+        if (session.phase === 'waiting') {
+          if (hidReady(latest)) enterRunning();
+          else { maybeArm(); render(); }
+          return;
+        }
+        if (session.phase === 'running') {
+          // Wait until we've actually seen PLAYING before accepting the end: a previous run can
+          // leave the device in DONE, and the first poll after fire() may still read that stale
+          // DONE. Once PLAYING is seen, any non-PLAYING status (DONE / IDLE) is the real finish.
+          if (duckyId(latest) === 'DUCKY_STATUS_PLAYING') session.started = true;
+          else if (session.started) finish();
+        }
+      }
+
+      // Host is ready -> send the command. Tracked runs enter 'running' and let the poll detect
+      // completion; fire-and-forget runs (consumer) just fire and close the popup.
+      function enterRunning() {
+        const fire = session.fire;
+        if (!session.track) {
+          close();
+          Promise.resolve().then(fire).catch(() => { });
+          return;
+        }
+        session.phase = 'running';
+        session.started = false;
+        render();
+        startElapsed();
+        Promise.resolve().then(fire).catch(() => { });
+      }
+
+      // ---- public entry ----
+
+      // Runs one action through the shared popup. `fire` is the async command fetch (trigger /
+      // POST /live / key), sent only once the transport is ready. `track` true (payload/live)
+      // shows running -> done with an elapsed timer and STOP; false (consumer) fires and closes.
+      async function run({ label, fire, track }) {
+        const mySeq = ++seq;
+        latest = await fetchStatus() ?? latest; // fresh truth: never trust a remembered arm state
+        if (mySeq !== seq) return; // superseded / closed while the fetch was in flight
+
+        if (hidReady(latest)) {
+          if (!track) { try { await fire(); } catch { } return; }
+          session = { phase: 'running', label: label || '', track: true, fire, elapsed: 0, started: false };
+          showOverlay();
+          render();
+          startElapsed();
+          ensurePolling();
+          try { await fire(); } catch { }
+          return;
+        }
+
+        session = { phase: 'waiting', label: label || '', track: !!track, fire, elapsed: 0, armSent: false };
+        showOverlay();
+        render();
+        ensurePolling();
+        maybeArm();
+      }
+
+      // Resume support: if a payload is already playing when this script loads (e.g. a page reload
+      // mid-run), re-open the popup in its running phase (label is unknown after a reload) and let
+      // the poll carry it to done.
+      async function init() {
+        latest = await fetchStatus();
+        if (duckyId(latest) !== 'DUCKY_STATUS_PLAYING') return;
+        session = { phase: 'running', label: '', track: true, fire: null, elapsed: 0, started: false };
+        showOverlay();
+        render();
+        startElapsed();
+        ensurePolling();
+      }
+      init();
+
+      return { run };
+    })();
+
+    // ---- nav ----
+    {
+      const tabs = document.querySelectorAll('#nav-tabs .tab');
+      const views = document.querySelectorAll('.view');
+
+      function activate(tabName) {
+        tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === tabName));
+        views.forEach((v) => v.classList.toggle('active', v.id === `view-${tabName}`));
+        window.dispatchEvent(new CustomEvent('picozap:tab-activated', { detail: { tab: tabName } }));
+      }
+
+      tabs.forEach((tab) => {
+        tab.addEventListener('click', () => activate(tab.dataset.tab));
+      });
+    }
+
+    // ---- payloads ----
+    {
+      const listEl = document.getElementById('payload-list');
+      const metaEl = document.getElementById('payloads-meta');
+      const uploadInput = document.getElementById('upload-input');
+      const uploadDrop = document.getElementById('upload-drop');
+      const uploadBtnDesktop = document.getElementById('upload-btn-desktop');
+
+      let payloads = []; // array of file names
+      let selectedName = null;
+
+      // ---- payload list ----
+
+      async function fetchPayloads() {
+        try {
+          const res = await fetch('/api/ducky/payloads.shtml', { cache: 'no-store' });
+          const names = await res.json();
+          payloads = Array.isArray(names) ? names : [];
+        } catch {
+          payloads = [];
+        }
+        if (selectedName && !payloads.includes(selectedName)) selectedName = null;
+        if (!selectedName && payloads.length) selectedName = payloads[0];
+        renderList();
+      }
+
+      function renderList() {
+        listEl.innerHTML = payloads
+          .map((name) => {
+            const selected = name === selectedName;
+            const safeName = escapeHtml(name);
+            return `
+              <li>
+                <button class="payload-row ${selected ? 'selected' : ''}" data-name="${safeName}">
+                  <span class="payload-info">
+                    <span class="payload-name">${safeName}</span>
+                    <span class="payload-meta">${selected ? 'selected' : ''}</span>
+                  </span>
+                  <span class="play-btn" data-play="${safeName}">&#9658;</span>
+                </button>
+              </li>`;
+          })
+          .join('');
+        metaEl.textContent = `${payloads.length} files · /payloads`;
+      }
+
+      // ---- run: hand the whole arm -> run -> done lifecycle to the shared session popup ----
+
+      function startRun(name) {
+        selectedName = name;
+        renderList();
+        Gate.run({
+          label: name,
+          track: true,
+          fire: () => fetch('/api/ducky/cmd.cgi?trigger=' + encodeURIComponent(name), { cache: 'no-store' }),
+        });
+      }
+
+      listEl.addEventListener('click', (e) => {
+        const playBtn = e.target.closest('[data-play]');
+        if (playBtn) {
+          startRun(playBtn.dataset.play);
+          return;
+        }
+        const row = e.target.closest('.payload-row');
+        if (row) {
+          selectedName = row.dataset.name;
+          renderList();
+        }
+      });
+
+      // ---- upload ----
+
+      async function uploadFile(file) {
+        if (!file.name.toLowerCase().endsWith('.txt')) {
+          alert('Only .txt payloads are supported');
+          return;
+        }
+        try {
+          await fetch('/upload?p=' + encodeURIComponent(file.name), { method: 'POST', body: file });
+          selectedName = file.name;
+          await fetchPayloads();
+        } catch { }
+      }
+
+      uploadInput.addEventListener('change', () => {
+        if (uploadInput.files[0]) uploadFile(uploadInput.files[0]);
+        uploadInput.value = '';
+      });
+
+      uploadBtnDesktop.addEventListener('click', () => uploadInput.click());
+
+      ['dragenter', 'dragover'].forEach((evt) =>
+        uploadDrop.addEventListener(evt, (e) => {
+          e.preventDefault();
+          uploadDrop.classList.add('drag-over');
+        })
+      );
+      ['dragleave', 'dragend'].forEach((evt) =>
+        uploadDrop.addEventListener(evt, () => uploadDrop.classList.remove('drag-over'))
+      );
+      uploadDrop.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadDrop.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (file) uploadFile(file);
+      });
+
+      // ---- init: load the list (Gate resumes any in-progress run in the shared popup) ----
+
+      fetchPayloads();
+    }
+
+    // ---- settings ----
+    {
+      // Options for the select settings, from the C exports.
+      const SETTING_OPTIONS = {
+        kb_layout: (EXPORTS.HID_KEY_LAYOUT_LIST || []).map((e, i) => ({ v: i, l: e.NAME })),
+        transporter: (EXPORTS.HID_TRANSPORT_LIST || []).map((e, i) => ({ v: i, l: e.NAME })),
+      };
+
+      // SCHEMA is derived from DUCKY_SETTINGS_LIST (ducky_settings.h): key, label, max and type
+      // all come from the firmware. Only select options (EXPORTS) and the visual divider are UI.
+      const SCHEMA = (EXPORTS.DUCKY_SETTINGS_LIST || []).flatMap((e) => {
+        const row = { key: e.KEY, label: e.DISPLAY_NAME, type: e.TYPE };
+        if (e.TYPE === 'int') {
+          row.unit = 'ms';
+          row.min = 0;
+          row.max = Number(e.MAX_VALUE) || 0;
+        }
+        if (e.TYPE === 'select') row.options = SETTING_OPTIONS[e.KEY] || [];
+        // keep the visual divider that used to sit before the layout/transport group
+        return e.KEY === 'kb_layout' ? [{ key: '__divider', type: 'divider' }, row] : [row];
+      });
+
+      const DEFAULTS = Object.fromEntries(
+        SCHEMA.filter((f) => f.type !== 'divider').map((f) => [f.key, f.type === 'bool' ? true : 0])
+      );
+
+      const bodyEl = document.getElementById('settings-body');
+      const saveBtn = document.getElementById('btn-save');
+
+      let values = { ...DEFAULTS };
+
+      async function loadValues() {
+        try {
+          const res = await fetch('/api/ducky/settings.shtml', { cache: 'no-store' });
+          const data = await res.json();
+          return { ...DEFAULTS, ...data };
+        } catch {
+          return { ...DEFAULTS };
+        }
+      }
+
+      function render() {
+        bodyEl.innerHTML = SCHEMA.map((f) => {
+          if (f.type === 'divider') return `<div class="setting-divider"></div>`;
+
+          if (f.type === 'int') {
+            return `
+              <div class="setting-row">
+                <div class="setting-label">
+                  <span class="setting-label-name">${f.label}</span>
+                  <span class="setting-type">int &middot; ${f.unit}</span>
+                </div>
+                <div class="stepper">
+                  <button class="step-btn" data-key="${f.key}" data-dir="-1" type="button">&minus;</button>
+                  <span class="step-value">${values[f.key]}</span>
+                  <button class="step-btn" data-key="${f.key}" data-dir="1" type="button">+</button>
+                </div>
+              </div>`;
+          }
+
+          if (f.type === 'select') {
+            const opts = f.options
+              .map((o) => `<option value="${o.v}" ${Number(values[f.key]) === o.v ? 'selected' : ''}>${o.l}</option>`)
+              .join('');
+            return `
+              <div class="setting-row">
+                <div class="setting-label">
+                  <span class="setting-label-name">${f.label}</span>
+                  <span class="setting-type">enum</span>
+                </div>
+                <select class="setting-select" data-key="${f.key}">${opts}</select>
+              </div>`;
+          }
+
+          // bool
+          const on = !!values[f.key];
+          return `
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-label-name">${f.label}</span>
+                <span class="setting-type">bool</span>
+              </div>
+              <button class="toggle ${on ? 'on' : ''}" data-key="${f.key}" type="button" role="switch" aria-checked="${on}">
+                <span class="toggle-knob"></span>
+              </button>
+            </div>`;
+        }).join('');
+      }
+
+      bodyEl.addEventListener('click', (e) => {
+        const stepBtn = e.target.closest('.step-btn');
+        if (stepBtn) {
+          const field = SCHEMA.find((f) => f.key === stepBtn.dataset.key);
+          const dir = Number(stepBtn.dataset.dir);
+          const next = Number(values[field.key]) + dir * (field.step || 100);
+          values[field.key] = Math.min(field.max, Math.max(field.min, next));
+          render();
+          return;
+        }
+        const toggle = e.target.closest('.toggle');
+        if (toggle) {
+          values[toggle.dataset.key] = !values[toggle.dataset.key];
+          render();
+        }
+      });
+
+      bodyEl.addEventListener('change', (e) => {
+        const select = e.target.closest('.setting-select');
+        if (select) values[select.dataset.key] = Number(select.value);
+      });
+
+      saveBtn.addEventListener('click', async () => {
+        // Emit the device's own config format ("key: value" lines with a Filetype/Version header)
+        // so the firmware can parse it straight through config_kv_parse — no bespoke POST decoding.
+        const lines = SCHEMA.filter((f) => f.type !== 'divider').map((f) => {
+          const v = values[f.key];
+          const out = typeof v === 'boolean' ? (v ? 1 : 0) : v;
+          return `${f.key}: ${out}`;
+        });
+        const body = ['Filetype: Ducky Settings', 'Version: 1', ...lines].join('\n');
+
+        try {
+          await fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body });
+        } catch { }
+
+        saveBtn.classList.add('saved');
+        const original = saveBtn.textContent;
+        saveBtn.textContent = '✓ SAVED';
+        setTimeout(() => {
+          saveBtn.classList.remove('saved');
+          saveBtn.textContent = original;
+        }, 1200);
+      });
+
+      async function init() {
+        values = await loadValues();
+        render();
+      }
+
+      init();
+    }
+
+    // ---- live ----
+    {
+      const textarea = document.getElementById('editor-input');
+      const highlightEl = document.getElementById('editor-highlight');
+      const gutterEl = document.getElementById('editor-gutter');
+      const acEl = document.getElementById('autocomplete');
+      const sendBtn = document.getElementById('btn-send');
+
+      const COMMAND_NAMES = DUCKY_COMMANDS.map((c) => c.name);
+
+      function highlightLine(line) {
+        const match = line.match(/^(\s*)([A-Za-z]+)(\s|$)/);
+        if (!match) return escapeHtml(line);
+        const [, leading, word] = match;
+        const upper = word.toUpperCase();
+        if (!COMMAND_NAMES.includes(upper)) return escapeHtml(line);
+        const rest = line.slice(leading.length + word.length);
+        const cls = upper === 'REM' ? 'tok-rem' : 'tok-cmd';
+        const restCls = upper === 'REM' ? 'tok-rem' : 'tok-arg';
+        return `${escapeHtml(leading)}<span class="${cls}">${escapeHtml(word)}</span><span class="${restCls}">${escapeHtml(rest)}</span>`;
+      }
+
+      function autoResize() {
+        textarea.style.height = 'auto';
+        textarea.style.height = `${textarea.scrollHeight}px`;
+      }
+
+      function renderText() {
+        const lines = textarea.value.split('\n');
+        gutterEl.innerHTML = lines.map((_, i) => `<div>${i + 1}</div>`).join('');
+        highlightEl.innerHTML = lines.map(highlightLine).join('\n');
+        autoResize();
+      }
+
+      function currentLineInfo() {
+        const caret = textarea.selectionStart;
+        const value = textarea.value;
+        const lineStart = value.lastIndexOf('\n', caret - 1) + 1;
+        const lineIndex = value.slice(0, lineStart).split('\n').length - 1;
+        const beforeCaret = value.slice(lineStart, caret);
+        return { caret, lineStart, lineIndex, beforeCaret };
+      }
+
+      function updateAutocomplete() {
+        const { lineIndex, beforeCaret } = currentLineInfo();
+        const prefix = beforeCaret.trimStart();
+        const leadingWs = beforeCaret.length - prefix.length;
+
+        const isFirstToken = prefix.length > 0 && !/\s/.test(prefix);
+        const prefixUpper = prefix.toUpperCase();
+        const matches = isFirstToken
+          ? DUCKY_COMMANDS.filter((c) => c.name.startsWith(prefixUpper) && c.name !== prefixUpper)
+          : [];
+
+        if (!matches.length) {
+          acEl.classList.add('hidden');
+          acEl.dataset.matches = '';
+          return;
+        }
+
+        acEl.dataset.matches = JSON.stringify(matches.map((m) => m.name));
+        acEl.innerHTML = matches
+          .map(
+            (c, i) => `
+            <div class="ac-item ${i === 0 ? 'active' : ''}" data-name="${c.name}">
+              <span>${c.name}</span><span class="ac-hint">${c.argHint || c.hint}</span>
+            </div>`
+          )
+          .join('');
+
+        const cs = getComputedStyle(textarea);
+        const lineHeightPx = parseFloat(cs.lineHeight);
+        acEl.style.top = `${lineIndex * lineHeightPx}px`;
+        acEl.style.left = `${leadingWs}ch`;
+        acEl.classList.remove('hidden');
+      }
+
+      function acceptSuggestion(name) {
+        const { caret, lineStart, beforeCaret } = currentLineInfo();
+        const prefix = beforeCaret.trimStart();
+        const leadingWs = beforeCaret.length - prefix.length;
+        const replaceStart = lineStart + leadingWs;
+        const value = textarea.value;
+        const insertion = `${name} `;
+        textarea.value = value.slice(0, replaceStart) + insertion + value.slice(caret);
+        const newCaret = replaceStart + insertion.length;
+        textarea.setSelectionRange(newCaret, newCaret);
+        acEl.classList.add('hidden');
+        renderText();
+        textarea.focus();
+      }
+
+      textarea.addEventListener('input', () => {
+        renderText();
+        updateAutocomplete();
+      });
+
+      textarea.addEventListener('click', updateAutocomplete);
+      textarea.addEventListener('keyup', (e) => {
+        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
+          updateAutocomplete();
+        }
+      });
+
+      textarea.addEventListener('keydown', (e) => {
+        const visible = !acEl.classList.contains('hidden');
+        if (!visible) return;
+        if (e.key === 'Tab' || e.key === 'Enter') {
+          const active = acEl.querySelector('.ac-item.active') || acEl.querySelector('.ac-item');
+          if (active) {
+            e.preventDefault();
+            acceptSuggestion(active.dataset.name);
+          }
+        } else if (e.key === 'Escape') {
+          acEl.classList.add('hidden');
+        }
+      });
+
+      textarea.addEventListener('blur', () => {
+        setTimeout(() => acEl.classList.add('hidden'), 150);
+      });
+
+      acEl.addEventListener('mousedown', (e) => {
+        const item = e.target.closest('.ac-item');
+        if (item) {
+          e.preventDefault();
+          acceptSuggestion(item.dataset.name);
+        }
+      });
+
+      // The session popup (modal backdrop) covers SEND while a run is live, so no busy-lock here.
+      sendBtn.addEventListener('click', () => {
+        Gate.run({
+          label: 'LIVE SCRIPT',
+          track: true,
+          fire: () => fetch('/live', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: textarea.value }),
+        });
+      });
+
+      const commandsListEl = document.getElementById('commands-list');
+      commandsListEl.innerHTML = DUCKY_COMMANDS.map(
+        (c) => `<div class="cmd-row"><span class="cmd-name">${c.name}</span></div>`
+      ).join('');
+
+      window.addEventListener('picozap:tab-activated', (e) => {
+        if (e.detail.tab === 'live') autoResize();
+      });
+
+      textarea.value = LIVE_STARTER_SCRIPT.join('\n');
+      renderText();
+    }
+
+    // ---- consumer ----
+    {
+      const gridEl = document.getElementById('consumer-grid');
+
+      const toggled = new Set();
+
+      function render() {
+        gridEl.innerHTML = CONSUMER_BUTTONS.map((b) => {
+          const classes = ['consumer-btn'];
+          if (b.primary) classes.push('primary');
+          if (b.toggle && toggled.has(b.id)) classes.push('toggled');
+          return `
+            <button class="${classes.join(' ')}" data-id="${b.id}" type="button">
+              <span class="icon">${b.icon}</span>
+              <span class="label">${b.label}</span>
+            </button>`;
+        }).join('');
+      }
+
+      gridEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('.consumer-btn');
+        if (!btn) return;
+        const def = CONSUMER_BUTTONS.find((b) => b.id === btn.dataset.id);
+        if (def.toggle) {
+          toggled.has(def.id) ? toggled.delete(def.id) : toggled.add(def.id);
+          render();
+        }
+        // Fire-and-forget: the arming popup shows only if not yet armed, then the key fires and
+        // the popup closes -- no running/done phase for a single consumer keypress.
+        Gate.run({
+          label: def.label,
+          track: false,
+          fire: () => fetch('/api/ducky/cmd.cgi?key=' + encodeURIComponent(def.cmd), { cache: 'no-store' }),
+        });
+      });
+
+      render();
+    }
+  </script>
+</body>
+
+</html>

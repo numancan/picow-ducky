@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>picozap &middot; Wi-Fi Setup</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+    <div class="brand-row">
+        <div class="brand">
+            <div class="logo-mark">D</div>
+            <div class="brand-text">
+                <div class="brand-name">picozap</div>
+            </div>
+        </div>
+    </div>
+
+    <main class="portal-content">
+        <div class="view-header">
+            <div class="view-title">
+                <h1>WI-FI SETUP</h1>
+                <p class="view-sub">tap a network and enter its password &middot; refreshes every 5s</p>
+            </div>
+        </div>
+
+        <ul class="payload-list network-list" id="rows"></ul>
+        <div class="status-idle-msg" id="empty">No networks found yet. Scanning&hellip;</div>
+        <div id="conn" class="hidden"></div>
+    </main>
+
+    <div id="modal-overlay">
+        <div id="modal">
+            <h3 id="modal-title"></h3>
+            <input type="password" id="modal-pw" placeholder="Password" autocomplete="off" />
+            <div class="modal-btns">
+                <button id="modal-cancel">CANCEL</button>
+                <button id="modal-connect">CONNECT</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Only NET_STATUS_LIST is embedded here (not the full export set index.html uses) --
+        // see tools/gen_web_content.py's scoped `/*{{EXPORT:NAME,...}}*/` placeholder syntax.
+        var EXPORTS = /*{{EXPORT:NET_STATUS_LIST}}*/{};
+
+        function stateId(stateIndex) {
+            return ((EXPORTS.NET_STATUS_LIST || [])[stateIndex] || {}).ID || null;
+        }
+
+        var REFRESH_MS = 5000, STATUS_MS = 2000, MIN = -100, MAX = -40;
+
+        var mode = 'scan';
+        var scanTimer = null, statusTimer = null;
+        var currentList = [];
+        var sawConnected = false;
+        var sawConnecting = false; // saw a *_CONNECTING state this attempt; used to infer failure
+        var pendingNetwork = null; // keeps the network in memory while the popup is open
+        var connectingSsid = ''; // the status JSON doesn't carry ssid, so it's kept locally
+
+        function barLevel(rssi) {
+            var p = (rssi - MIN) / (MAX - MIN);
+            return Math.max(1, Math.min(4, Math.ceil(p * 4)));
+        }
+
+        function esc(s) {
+            var d = document.createElement('span');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function render(list) {
+            currentList = list || [];
+            var rows = document.getElementById('rows');
+            var empty = document.getElementById('empty');
+            if (!currentList.length) {
+                rows.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+            empty.style.display = 'none';
+            var html = '';
+            for (var i = 0; i < currentList.length; i++) {
+                var n = currentList[i];
+                var level = barLevel(n.rssi);
+                var weak = n.rssi < -75;
+                var bars = '';
+                for (var b = 1; b <= 4; b++) {
+                    bars += '<span' + (b <= level ? ' class="on"' : '') + '></span>';
+                }
+                html +=
+                    '<li class="payload-row network-row" data-idx="' + i + '">' +
+                    '<div class="payload-info">' +
+                    '<div class="payload-name">' + esc(n.ssid) + '</div>' +
+                    '<div class="payload-meta">' +
+                    '<span class="network-lock' + (n.locked ? '' : ' open') + '">' +
+                    (n.locked ? '&#128274; locked' : 'open') + '</span>' +
+                    ' &middot; ' + n.rssi + ' dBm</div>' +
+                    '</div>' +
+                    '<div class="signal-bars' + (weak ? ' weak' : '') + '">' + bars + '</div>' +
+                    '</li>';
+            }
+            rows.innerHTML = html;
+        }
+
+        function setStatus(txt, err) {
+            var s = document.getElementById('status');
+            var dot = document.getElementById('status-dot');
+            s.textContent = txt;
+            s.className = err ? 'err' : '';
+            dot.className = 'dot ' + (err ? 'dot-stopped' : 'dot-online');
+        }
+
+        function refresh() {
+            if (mode !== 'scan') return;
+            fetch('/api/portal/scan.shtml', { cache: 'no-store' })
+                .then(function (r) {
+                    if (!r.ok) throw new Error(r.status);
+                    return r.json();
+                })
+                .then(function (list) {
+                    if (mode !== 'scan') return;
+                    render(list);
+                    setStatus('live · ' + new Date().toLocaleTimeString());
+                })
+                .catch(function () {
+                    setStatus('offline · showing last known list', true);
+                });
+        }
+
+        function showConn(html) {
+            document.getElementById('rows').innerHTML = '';
+            document.getElementById('empty').style.display = 'none';
+            var c = document.getElementById('conn');
+            c.classList.remove('hidden');
+            c.innerHTML = html;
+        }
+
+        function stopStatusPoll() {
+            if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+        }
+
+        function backToScan() {
+            mode = 'scan';
+            stopStatusPoll();
+            document.getElementById('conn').classList.add('hidden');
+            setStatus('waiting for scan…');
+            refresh();
+            if (!scanTimer) scanTimer = setInterval(refresh, REFRESH_MS);
+        }
+
+        function pollStatus() {
+            fetch('/api/portal/status.shtml', { cache: 'no-store' })
+                .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+                .then(function (st) {
+                    var id = stateId(st.state);
+
+                    if (id === 'NET_STATE_CONNECTED') {
+                        sawConnected = true;
+                        showConn('<div class="status-panel">' +
+                            '<div class="status-text">CONNECTED</div>' +
+                            '<div class="status-caption">AP will shut down shortly; device is now on your network.</div>' +
+                            '</div>');
+                    } else if (id === 'NET_STATE_STA_CONNECTING' || id === 'NET_STATE_PROV_CONNECTING') {
+                        sawConnecting = true;
+                        showConn('<div class="status-panel">' +
+                            '<div class="status-label">CONNECTING</div>' +
+                            '<div class="status-payload-name">' + esc(connectingSsid) + '</div>' +
+                            '</div>');
+                    } else if (sawConnecting) {
+                        // left a *_CONNECTING state without ever reaching CONNECTED -- the
+                        // device has no dedicated "failed" status, so this is the closest
+                        // signal we get that the attempt didn't succeed.
+                        stopStatusPoll();
+                        showConn('<div class="status-panel">' +
+                            '<div class="status-text failed">CONNECTION FAILED</div>' +
+                            '<div class="status-caption">Password may be incorrect.</div>' +
+                            '<button class="btn-back" onclick="backToScan()">BACK TO LIST</button>' +
+                            '</div>');
+                    } else {
+                        showConn('<div class="status-panel">' +
+                            '<div class="status-label">CONNECTING</div>' +
+                            '<div class="status-payload-name">' + esc(connectingSsid) + '</div>' +
+                            '</div>');
+                    }
+                })
+                .catch(function () {
+                    if (sawConnected) {
+                        stopStatusPoll();
+                        showConn('<div class="status-panel">' +
+                            '<div class="status-text">CONNECTED</div>' +
+                            '<div class="status-caption">AP has closed; device is now on your network.</div>' +
+                            '</div>');
+                    } else {
+                        showConn('<div class="status-panel">' +
+                            '<div class="status-label">CONNECTING</div>' +
+                            '<div class="status-caption">waiting for confirmation&hellip;</div>' +
+                            '</div>');
+                    }
+                });
+        }
+
+        function startConnecting(ssid) {
+            mode = 'connecting';
+            connectingSsid = ssid;
+            sawConnected = false;
+            sawConnecting = false;
+            if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+            setStatus('connecting…');
+            showConn('<div class="status-panel">' +
+                '<div class="status-label">CONNECTING</div>' +
+                '<div class="status-payload-name">' + esc(ssid) + '</div>' +
+                '</div>');
+            stopStatusPoll();
+            statusTimer = setInterval(pollStatus, STATUS_MS);
+            pollStatus();
+        }
+
+        function sendConnectRequest(ssid, pw) {
+            fetch('/connect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'ssid=' + encodeURIComponent(ssid) + '&password=' + encodeURIComponent(pw)
+            }).catch(function () { });
+            startConnecting(ssid);
+        }
+
+        function closePopup() {
+            document.getElementById('modal-overlay').style.display = 'none';
+            document.getElementById('modal-pw').value = '';
+            pendingNetwork = null;
+        }
+
+        document.getElementById('modal-cancel').addEventListener('click', closePopup);
+
+        document.getElementById('modal-connect').addEventListener('click', function () {
+            if (pendingNetwork) {
+                var pw = document.getElementById('modal-pw').value;
+                var ssid = pendingNetwork.ssid;
+                closePopup();
+                sendConnectRequest(ssid, pw);
+            }
+        });
+
+        document.getElementById('modal-pw').addEventListener('keyup', function (e) {
+            if (e.key === 'Enter') document.getElementById('modal-connect').click();
+        });
+
+        document.getElementById('rows').addEventListener('click', function (e) {
+            if (mode !== 'scan') return;
+            var row = e.target.closest('.network-row');
+            if (!row) return;
+            var n = currentList[+row.getAttribute('data-idx')];
+            if (!n) return;
+
+            if (n.locked) {
+                pendingNetwork = n;
+                document.getElementById('modal-title').textContent = 'Password — ' + n.ssid;
+                document.getElementById('modal-overlay').style.display = 'flex';
+                document.getElementById('modal-pw').focus();
+            } else {
+                sendConnectRequest(n.ssid, '');
+            }
+        });
+
+        setStatus('waiting for scan…');
+        refresh();
+        scanTimer = setInterval(refresh, REFRESH_MS);
+    </script>
+</body>
+
+</html>

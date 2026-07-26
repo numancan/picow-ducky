@@ -2,8 +2,8 @@
 
 #include <stdbool.h>
 
-#include "enum_gen.h"
 #include "hid_report.h"
+#include "middleware/enum_gen.h"
 
 typedef struct HidTransport HidTransport;
 struct HidTransport {
@@ -14,7 +14,7 @@ struct HidTransport {
     HidStatus (*send_report)(const HIDReport* report);
 };
 
-// $EXPORT=ID,Name
+// $EXPORT=ID,NAME
 #define HID_TRANSPORT_LIST(X)                          \
     X(HID_TRANSPORT_USB, "USB", hid_usb_get_transport) \
     X(HID_TRANSPORT_BLE, "BLE", hid_ble_get_transport)

@@ -3,56 +3,41 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "app/settings/settings.h"
+#include "duckyscript/web/ducky_web.h"
 #include "lwip/apps/httpd.h"
-#include "middleware/fat_io.h"
-#include "middleware/log.h"
+#include "lwip/def.h"
+#include "lwip/pbuf.h"
+#include "net_manager/web/provisioning_web.h"
 
-
-static const char* TAG = "POST";
-
-enum { INVALID_POST = -1, POST_UPLOAD = 0, POST_SETTINGS };
+// lwIP resolves these three POST symbols at link time; there can be exactly one definition
+// each in the binary. The master owns URI routing (post_routes[]) and per-connection tracking;
+// the owning feature implements the PostHandler it registers. A new feature adds a row here and
+// exports its handler — no other master change.
 
 typedef struct {
-    int8_t post_id;
     const char* uri;
-} PostUriMapping;
+    const PostHandler* handler;
+} PostRoute;
 
-const PostUriMapping post_uris[] = {
-    {POST_UPLOAD, "/upload"},
-    {POST_SETTINGS, "/settings"},
+static const PostRoute post_routes[] = {
+    {"/upload", &ducky_upload_post_handler},
+    {"/settings", &ducky_settings_post_handler},
+    {"/live", &ducky_live_post_handler},
+    {"/connect", &provisioning_connect_post_handler},
 };
 
 static void* current_connection = NULL;
-static int8_t current_post_req_id = INVALID_POST;
-static FIL current_file;
+static const PostHandler* current_handler = NULL;
 
-static bool check_file_ext(char* fname, const char* ext) {
-    if (!(*fname) && strlen(fname) > 24) return 0;
-
-    char* fn_cpy = strdup(fname);
-
-    strtok(fn_cpy, ".");
-    fn_cpy = strtok(NULL, "");
-
-    return (strcmp(fn_cpy, ext) == 0);
-}
-
-static int8_t get_post_id(const char* uri) {
-    for (size_t i = 0; i < count_of(post_uris); i++) {
-        char* defined_uri = (char*)post_uris[i].uri;
+static const PostHandler* get_post_handler(const char* uri) {
+    for (size_t i = 0; i < LWIP_ARRAYSIZE(post_routes); i++) {
+        const char* defined_uri = post_routes[i].uri;
 
         if (strncmp(uri, defined_uri, strlen(defined_uri)) == 0) {
-            return post_uris[i].post_id;
+            return post_routes[i].handler;
         }
     }
-    return INVALID_POST;
-}
-
-// Example uri upload?p=payload.txt
-static char* extract_uri_param(const char* uri) {
-    char* param = strchr(uri, '=') + 1;
-    return param;
+    return NULL;
 }
 
 err_t httpd_post_begin(void* connection, const char* uri, const char* http_request, u16_t http_request_len,
@@ -60,79 +45,37 @@ err_t httpd_post_begin(void* connection, const char* uri, const char* http_reque
     LWIP_UNUSED_ARG(http_request);
     LWIP_UNUSED_ARG(http_request_len);
     LWIP_UNUSED_ARG(content_len);
+    LWIP_UNUSED_ARG(response_uri);
+    LWIP_UNUSED_ARG(response_uri_len);
 
-    err_enum_t err = ERR_VAL;
+    if (current_connection == connection) return ERR_OK;
 
-    LOG_INFO(TAG, "URI: %s", uri);
+    current_connection = connection;
+    current_handler = get_post_handler(uri);
+    if (current_handler == NULL) return ERR_VAL;
 
-    if (current_connection != connection) {
-        current_connection = connection;
+    err_t err = current_handler->begin(uri, post_auto_wnd);
+    if (err != ERR_OK) current_handler = NULL;
 
-        current_post_req_id = get_post_id(uri);
-
-        switch (current_post_req_id) {
-            case POST_UPLOAD:
-
-                char* param = extract_uri_param(uri);
-
-                if (check_file_ext(param, "txt")) {
-                    fat_io_change_dir("/payloads");
-                    err = fat_io_open_write(&current_file, param);
-                    fat_io_change_dir("..");
-                }
-
-                *post_auto_wnd = 0;
-                break;
-
-            case POST_SETTINGS:
-
-                err = fat_io_open_write(&current_file, SETTINGS_FILE_NAME);
-
-                *post_auto_wnd = 0;
-                break;
-
-            default: break;
-        }
-    }
-
-    if (err != ERR_OK) current_post_req_id = INVALID_POST;
-    return err != ERR_VAL ? ERR_OK : ERR_VAL;
+    return err;
 }
 
 err_t httpd_post_receive_data(void* connection, struct pbuf* p) {
-    char buff[1400];
-    err_t err = ERR_VAL;
-
-    if (current_connection == connection &&
-        (current_post_req_id == POST_UPLOAD || current_post_req_id == POST_SETTINGS)) {
-        char* pt = (char*)pbuf_get_contiguous(p, buff, sizeof(buff), p->len, 0);
-        FRESULT fr = fat_io_write(&current_file, pt, p->len);
-        LOG_INFO(TAG, "fat_io_write: %s (%d)", FRESULT_str(fr), fr);
-
-        pt[p->len] = '\0';
-
-        LOG_DEBUG(TAG, "------POST DATA------");
-        LOG_DEBUG(TAG, "%s", pt);
-        LOG_DEBUG(TAG, "---------END---------");
-
-        err = ERR_OK;
+    if (current_connection != connection || current_handler == NULL) {
+        pbuf_free(p);
+        return ERR_VAL;
     }
 
-    pbuf_free(p);
-    return err != ERR_VAL ? ERR_OK : ERR_VAL;
+    return current_handler->receive(p);
 }
 
 void httpd_post_finished(void* connection, char* response_uri, u16_t response_uri_len) {
-    if (current_connection == connection) {
-        snprintf(response_uri, response_uri_len, "/index.shtml");
+    if (current_connection != connection || current_handler == NULL) return;
 
-        if ((current_post_req_id == POST_UPLOAD || current_post_req_id == POST_SETTINGS)) fat_io_close(&current_file);
+    // Generic default response; the handler overrides it if its route needs a redirect.
+    snprintf(response_uri, response_uri_len, "/");
+    current_handler->finished(response_uri, response_uri_len);
 
-        if (current_post_req_id == POST_SETTINGS)
-            // TODO: if ok
-            snprintf(response_uri, response_uri_len, "/index.shtml?settings=ok");
-
-        current_connection = NULL;
-        current_post_req_id = INVALID_POST;
-    }
+    current_connection = NULL;
+    current_handler = NULL;
 }

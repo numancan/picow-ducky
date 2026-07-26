@@ -29,7 +29,7 @@ void hal_init() {
     hal_sd_card_init();
     hal_gpio_init_I2C(&gpio_ssd1306, 400 * 1000);
     hal_battery_init();
-    
+
     hal_gpio_init(STATUS_LED_PIN, GPIO_OUTPUT, GPIO_PULL_NONE);
     hal_gpio_write(STATUS_LED_PIN, false);
-}
+}

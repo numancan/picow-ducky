@@ -74,15 +74,15 @@ typedef enum {
     REPORT_ID_COUNT,
 } HIDReportKind;
 
-// $EXPORT=ID,STATUS_NAME
-#define HID_STATUS_LIST(X)                                                                                       \
-    X(HID_STATUS_OK, "OK")                                                                                       \
-    X(HID_STATUS_UNINITIALIZED, "UNINITIALIZED") /* Driver/stack not yet started or stoped. */                   \
-    X(HID_STATUS_DISCONNECTED, "DISCONNECTED")   /* Device (BLE/USB) working but not connected */                \
-    X(HID_STATUS_BUSY, "BUSY")                   /* Connected but buffer is full; previous data not sent yet. */ \
-    X(HID_STATUS_SUSPENDED, "SUSPENDED")         /* Host (PC/phone) is suspended and not accepting data. */      \
-    X(HID_STATUS_TIMEOUT, "TIMEOUT")                                                                             \
-    X(HID_STATUS_UNKNOWN, "UNKNOWN")
+// $EXPORT=ID,DISPLAY_NAME
+#define HID_STATUS_LIST(X)                                                                                      \
+    X(HID_STATUS_OK, "Ready")                                                                                   \
+    X(HID_STATUS_UNINITIALIZED, "Uninitalized") /* Driver/stack not yet started or stoped. */                   \
+    X(HID_STATUS_DISCONNECTED, "Disconnected")  /* Device (BLE/USB) working but not connected */                \
+    X(HID_STATUS_BUSY, "Busy")                  /* Connected but buffer is full; previous data not sent yet. */ \
+    X(HID_STATUS_SUSPENDED, "Suspended")        /* Host (PC/phone) is suspended and not accepting data. */      \
+    X(HID_STATUS_TIMEOUT, "Timeout")                                                                            \
+    X(HID_STATUS_UNKNOWN, "Unknown")
 
 DECLARE_ENUM(HidStatus, HID_STATUS_COUNT, HID_STATUS_LIST)
 

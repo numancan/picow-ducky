@@ -1,6 +1,7 @@
 #include "hal_battery.h"
 
 #include <stdint.h>
+#include <stdio.h>
 
 #include "hal.h"
 #include "hal_gpio.h"
@@ -9,10 +10,12 @@
 
 #define BATT_DIVIDER_R_TOP_KOHM (215U)
 #define BATT_DIVIDER_R_BOT_KOHM (619U)
+#define BATT_ADC_VREF_MV (3300U)
+#define BATT_ADC_FULL_SCALE (1U << 12) /* 12-bit ADC */
 
 void hal_battery_init(void) {
-    hal_gpio_init(MCP_STAT1_PIN, GPIO_INPUT, GPIO_PULL_NONE);
-    hal_gpio_init(MCP_STAT2_PIN, GPIO_INPUT, GPIO_PULL_NONE);
+    hal_gpio_init(MCP_STAT1_PIN, GPIO_INPUT, GPIO_PULL_UP);
+    hal_gpio_init(MCP_STAT2_PIN, GPIO_INPUT, GPIO_PULL_UP);
 
     hal_gpio_init_adc(BATT_SENSE_PIN);
 }
@@ -39,27 +42,25 @@ BatteryChargeState hal_battery_get_charge_state(void) {
 
 const char* hal_battery_charge_state_str(BatteryChargeState state) {
     switch (state) {
-        case BATTERY_CHARGING:
-            return "Charging";
-        case BATTERY_CHARGE_COMPLETE:
-            return "Charge Complete";
-        case BATTERY_SYSTEM_TEST:
-            return "System Test";
-        case BATTERY_NO_CHARGE:
-            return "No Charge";
-        default:
-            return "Unknown";
+        case BATTERY_CHARGING: return "Charging";
+        case BATTERY_CHARGE_COMPLETE: return "Charge Complete";
+        case BATTERY_SYSTEM_TEST: return "System Test";
+        case BATTERY_NO_CHARGE: return "No Charge";
+        default: return "Unknown";
     }
 }
 
-static const float ADC_TO_VBAT_FACTOR =
-    (3.3f / (1 << 12)) * ((float)(BATT_DIVIDER_R_TOP_KOHM + BATT_DIVIDER_R_BOT_KOHM) / BATT_DIVIDER_R_BOT_KOHM);
-
-float hal_battery_get_voltage(void) {
+uint16_t hal_battery_get_millivolts(void) {
     /* Select ADC channel */
     adc_select_input(BATT_SENSE_PIN - 26);
 
     const uint16_t raw = adc_read();
 
-    return raw * ADC_TO_VBAT_FACTOR;
+    /* Vbat = Vadc * (Rtop + Rbot) / Rbot, in millivolts. Integer math with a
+     * 64-bit numerator (raw * 3300 * 834 overflows 32 bits) and round-to-nearest. */
+    const uint32_t divider_sum = BATT_DIVIDER_R_TOP_KOHM + BATT_DIVIDER_R_BOT_KOHM;
+    const uint32_t denominator = BATT_DIVIDER_R_BOT_KOHM * BATT_ADC_FULL_SCALE;
+    const uint64_t numerator = (uint64_t)raw * BATT_ADC_VREF_MV * divider_sum;
+
+    return (uint16_t)((numerator + denominator / 2) / denominator);
 }

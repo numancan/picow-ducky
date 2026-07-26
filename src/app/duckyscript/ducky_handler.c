@@ -6,123 +6,166 @@
 #include <string.h>
 
 #include "FreeRTOS.h"
-#include "class/hid/hid.h"
-#include "hid/usb_device.h"
-#include "hid/usb_hid.h"
+#include "ducky_settings.h"
+#include "hid/hid_report.h"
+#include "hid/layouts/hid_layout.h"
+#include "middleware/log.h"
 #include "pico/stdlib.h"
 #include "task.h"
 
-static uint32_t default_delay_ms = 0;
+#define TAG "ducky_handler"
+
+static uint32_t default_char_delay = 0;
+static uint32_t default_char_delay_fuzz = 0;
+static uint32_t default_delay = 0;
 static uint32_t default_delay_fuzz = 0;
 
-static void default_delay(void) {
-    uint32_t delay = default_delay_ms;
-    if (default_delay_fuzz) delay += (uint32_t)(rand() % (default_delay_fuzz + 1));
-    vTaskDelay(pdMS_TO_TICKS(delay));
+static uint32_t get_delay_ms(uint32_t delay, uint32_t fuzz) {
+    if (fuzz) delay += (uint32_t)(rand() % (fuzz + 1));
+    return delay;
 }
 
-static bool handle_key_combo(ducky_line_t* ducky_line) {
-    uint16_t usage = usb_hid_report_str_to_consumer(ducky_line->command);
+static bool handle_key_combo(DuckyLine* ducky_line, HidStatus* status) {
+    uint16_t usage = hid_report_str_to_consumer(ducky_line->command);
     if (usage) {
-        usb_hid_report_consumer(usage);
+        *status = hid_report_consumer(usage);
         return true;
     }
 
-    uint8_t modifier = usb_hid_report_str_to_mod(ducky_line->command);
+    uint8_t modifier = hid_report_str_to_mod(ducky_line->command);
     uint8_t special_key = 0;
     uint8_t keycodes[6] = {0};
     uint8_t ki = 0;
 
     if (!modifier) {
-        special_key = usb_hid_report_str_to_special(ducky_line->command);
+        special_key = hid_report_str_to_special(ducky_line->command);
         keycodes[ki++] = special_key;
     }
 
     if (!modifier && !special_key) return false;
 
-    char* token = strtok(ducky_line->args, " ");
+    char* saveptr;
+    char* token = strtok_r(ducky_line->args, " ", &saveptr);
     while (token && ki < 6) {
-        uint8_t spec = usb_hid_report_str_to_special(token);
-        if (spec) {
-            keycodes[ki++] = spec;
+        uint8_t mod = hid_report_str_to_mod(token);
+        if (mod) {
+            modifier |= mod;
         } else {
-            for (size_t i = 0; i < strlen(token) && ki < 6; i++) {
-                uint8_t kc = usb_hid_report_char_to_keycode(token[i], NULL);
-                if (kc) keycodes[ki++] = kc;
+            uint8_t spec = hid_report_str_to_special(token);
+            if (spec) {
+                keycodes[ki++] = spec;
+            } else {
+                size_t len = strlen(token);
+                for (size_t i = 0; i < len && ki < 6; i++) {
+                    uint8_t kc = hid_report_char_to_keycode(token[i], NULL);
+                    if (kc) keycodes[ki++] = kc;
+                }
             }
         }
-        token = strtok(NULL, " ");
+        token = strtok_r(NULL, " ", &saveptr);
     }
 
-    usb_hid_report_keys(modifier, keycodes);
+    *status = hid_report_keys(modifier, keycodes);
     return true;
 }
 
-void ducky_handler_exec_line(ducky_line_t* ducky_line) {
-    if (!ducky_line->command[0]) return;
-    if (strcmp(ducky_line->command, "REM") == 0) return;
+static DuckyCommandID get_ducky_command_id(const char* command_str) {
+#define X(id, str) \
+    if (strcmp(command_str, str) == 0) return id;
+    DUCKY_COMMAND_LIST(X)
+#undef X
 
-    if (strcmp(ducky_line->command, "DELAY") == 0) {
-        uint32_t delay_ms = (uint32_t)atoi(ducky_line->args);
-        vTaskDelay(pdMS_TO_TICKS(delay_ms));
-        return;
+    return DUCKY_COMMAND_COUNT;  // no match: handled as a key combo
+}
 
-    } else if (strcmp(ducky_line->command, "DEFAULTDELAY") == 0) {
-        default_delay_ms = (uint32_t)atoi(ducky_line->args);
-        return;
+void ducky_handler_init(const DuckySettings* settings) {
+    default_delay = settings->delay;
+    default_delay_fuzz = settings->fuzz_delay;
+    default_char_delay = settings->char_delay;
+    default_char_delay_fuzz = settings->char_fuzz_delay;
 
-    } else if (strcmp(ducky_line->command, "DEFAULTDELAYFUZZ") == 0) {
-        default_delay_fuzz = (uint32_t)atoi(ducky_line->args);
-        return;
+    hid_layout_set(settings->kb_layout);
+}
 
-    } else if (strcmp(ducky_line->command, "DEFAULTCHARDELAY") == 0) {
-        uint32_t default_char_delay = (uint32_t)atoi(ducky_line->args);
-        usb_hid_report_set_char_delay_ms(default_char_delay);
-        return;
+// TODO: consider using strcasecmp for commands
+bool ducky_handler_exec_line(DuckyLine* ducky_line) {
+    if (!ducky_line->command[0]) return true;
 
-    } else if (strcmp(ducky_line->command, "DEFAULTCHARDELAYFUZZ") == 0) {
-        uint32_t default_char_delay_fuzz = (uint32_t)atoi(ducky_line->args);
-        usb_hid_report_set_char_delay_fuzz(default_char_delay_fuzz);
-        return;
+    DuckyCommandID cmd_id = get_ducky_command_id(ducky_line->command);
 
-    } else if (strcmp(ducky_line->command, "STRING") == 0) {
-        usb_hid_report_string(ducky_line->args);
-        default_delay();
+    switch (cmd_id) {
+        case REM: return true;
 
-    } else if (strcmp(ducky_line->command, "LAYOUT") == 0) {
-        if (!strcmp(ducky_line->args, "TR_Q"))
-            hid_report_set_layout(HID_KEY_LAYOUT_TR_Q);
-        else if (!strcmp(ducky_line->args, "US_Q"))
-            hid_report_set_layout(HID_KEY_LAYOUT_US_Q);
-        else
-            printf("Unknown layout: %s\n", ducky_line->args);
+        case DELAY: {
+            uint32_t delay_ms = (uint32_t)atoi(ducky_line->args);
+            vTaskDelay(pdMS_TO_TICKS(delay_ms));
+            return true;
+        }
+        case DEFAULTDELAY: {
+            default_delay = (uint32_t)atoi(ducky_line->args);
+            return true;
+        }
+        case DEFAULTDELAYFUZZ: {
+            default_delay_fuzz = (uint32_t)atoi(ducky_line->args);
+            return true;
+        }
+        case DEFAULTCHARDELAY: {
+            default_char_delay = (uint32_t)atoi(ducky_line->args);
+            return true;
+        }
+        case DEFAULTCHARDELAYFUZZ: {
+            default_char_delay_fuzz = (uint32_t)atoi(ducky_line->args);
+            return true;
+        }
+        case STRING: {
+            uint32_t char_delay = get_delay_ms(default_char_delay, default_char_delay_fuzz);
+            HidStatus st = hid_report_string(ducky_line->args, char_delay);
+            vTaskDelay(pdMS_TO_TICKS(get_delay_ms(default_delay, default_delay_fuzz)));
+            return st == HID_STATUS_OK;
+        }
+        case LAYOUT: {
+            if (!hid_layout_set_by_name(ducky_line->args)) {
+                LOG_ERROR(TAG, "Unknown layout: %s\n", ducky_line->args);
+            }
+            vTaskDelay(pdMS_TO_TICKS(get_delay_ms(default_delay, default_delay_fuzz)));
+            return true;
+        }
+        case MOUSE_MOVE: {
+            int x = 0, y = 0;
+            sscanf(ducky_line->args, "%d %d", &x, &y);
+            HidStatus st = hid_report_mouse_move((int8_t)x, (int8_t)y);
+            vTaskDelay(pdMS_TO_TICKS(get_delay_ms(default_delay, default_delay_fuzz)));
+            return st == HID_STATUS_OK;
+        }
+        case MOUSE_CLICK: {
+            uint8_t b = 0;
+            if (!strcmp(ducky_line->args, "LEFT"))
+                b = MOUSE_BUTTON_LEFT;
+            else if (!strcmp(ducky_line->args, "RIGHT"))
+                b = MOUSE_BUTTON_RIGHT;
+            else if (!strcmp(ducky_line->args, "MIDDLE"))
+                b = MOUSE_BUTTON_MIDDLE;
 
-        default_delay();
-
-    } else if (strcmp(ducky_line->command, "MOUSE_MOVE") == 0) {
-        int x = 0, y = 0;
-        sscanf(ducky_line->args, "%d %d", &x, &y);
-        usb_hid_report_mouse_move((int8_t)x, (int8_t)y);
-        default_delay();
-
-    } else if (strcmp(ducky_line->command, "MOUSE_CLICK") == 0) {
-        uint8_t b = 0;
-        if (!strcmp(ducky_line->args, "LEFT"))
-            b = MOUSE_BUTTON_LEFT;
-        else if (!strcmp(ducky_line->args, "RIGHT"))
-            b = MOUSE_BUTTON_RIGHT;
-        else if (!strcmp(ducky_line->args, "MIDDLE"))
-            b = MOUSE_BUTTON_MIDDLE;
-        if (b) usb_hid_report_mouse_click(b);
-        default_delay();
-
-    } else if (strcmp(ducky_line->command, "MOUSE_SCROLL") == 0) {
-        int w = atoi(ducky_line->args);
-        usb_hid_report_mouse_scroll((int8_t)w);
-        default_delay();
-
-    } else {
-        bool handled = handle_key_combo(ducky_line);
-        if (handled) default_delay();
+            HidStatus st = HID_STATUS_OK;
+            if (b) st = hid_report_mouse_click(b);
+            vTaskDelay(pdMS_TO_TICKS(get_delay_ms(default_delay, default_delay_fuzz)));
+            return st == HID_STATUS_OK;
+        }
+        case MOUSE_SCROLL: {
+            int w = atoi(ducky_line->args);
+            HidStatus st = hid_report_mouse_scroll((int8_t)w);
+            vTaskDelay(pdMS_TO_TICKS(get_delay_ms(default_delay, default_delay_fuzz)));
+            return st == HID_STATUS_OK;
+        }
+        case DUCKY_COMMAND_COUNT:
+        default: {
+            // not a known command: try a key combo
+            HidStatus st = HID_STATUS_OK;
+            bool handled = handle_key_combo(ducky_line, &st);
+            if (handled) {
+                vTaskDelay(pdMS_TO_TICKS(get_delay_ms(default_delay, default_delay_fuzz)));
+            }
+            return st == HID_STATUS_OK;
+        }
     }
 }

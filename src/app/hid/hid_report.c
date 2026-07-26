@@ -6,8 +6,8 @@
 
 #include "FreeRTOS.h"
 #include "hid_transport.h"
+#include "middleware/sys_fault.h"
 #include "semphr.h"
-#include "sys_fault.h"
 #include "task.h"
 
 // Included layout systems

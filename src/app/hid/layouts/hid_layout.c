@@ -2,7 +2,7 @@
 
 #include "hid_layout_tr_q.h"
 #include "hid_layout_us_q.h"
-#include "sys_fault.h"
+#include "middleware/sys_fault.h"
 
 static HIDLayoutID active_layout = HID_KEY_LAYOUT_US_Q;
 

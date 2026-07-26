@@ -1,0 +1,3 @@
+#pragma once
+
+#define NET_MANAGER_VIEWS ADD_VIEW(VIEW_ID_NET_MANAGER)

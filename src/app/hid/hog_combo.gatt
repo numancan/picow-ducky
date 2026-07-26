@@ -1,5 +1,5 @@
 PRIMARY_SERVICE, GAP_SERVICE
-CHARACTERISTIC, GAP_DEVICE_NAME, READ, "HID Combo"
+CHARACTERISTIC, GAP_DEVICE_NAME, READ, "picozap"
 
 // add Battery Service
 #import <battery_service.gatt>

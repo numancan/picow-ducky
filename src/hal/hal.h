@@ -10,14 +10,16 @@ extern const uint8_t gpio_input_count;
 
 typedef enum { INPUT_KEY_SELECT, INPUT_KEY_DOWN } InputKey;
 
-#define BUTTON_DOWN_PIN         (18)
-#define BUTTON_SELECT_PIN       (11)
+#define BUTTON_DOWN_PIN         (11)
+#define BUTTON_SELECT_PIN       (18)
 
 #define STATUS_LED_PIN          (12)
 
 #define SSD1306_I2C_INST        (i2c0)
 #define SSD1306_SDA_PIN         (8)
 #define SSD1306_SCL_PIN         (9)
+#define SSD1306_I2C_CLK_HZ      (400 * 1000)
+#define SSD1306_I2C_ADDR        (_u(0x3C))
 
 #define SD_CARD_SPI_INST        (spi0)
 #define SD_CARD_MOSI_PIN        (4)
