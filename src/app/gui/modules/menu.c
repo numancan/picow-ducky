@@ -78,12 +78,12 @@ static void menu_init_common(Menu* menu, const char* title) {
     view_set_context(&menu->view, menu);
 }
 
-void menu_init_fixed(Menu* menu, const char* title, MenuItem* buf, uint16_t capacity) {
-    ABORT_IF(menu == NULL || buf == NULL || capacity == 0);
+void menu_init_fixed(Menu* menu, const char* title, MenuItem* buffer, uint16_t capacity) {
+    ABORT_IF(menu == NULL || buffer == NULL || capacity == 0);
 
     menu_init_common(menu, title);
     menu->type = MENU_TYPE_FIXED;
-    menu->model.fixed.items = buf;
+    menu->model.fixed.items = buffer;
     menu->model.fixed.capacity = capacity;
 }
 

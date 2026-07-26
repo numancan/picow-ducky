@@ -55,7 +55,10 @@ void canvas_draw_frame(Canvas* canvas, int x, int y, int w, int h) {
     u8g2_DrawFrame(canvas->u8g2, x, y, w, h);
 }
 
-uint8_t canvas_string_width(Canvas* canvas, const char* str) { return (uint8_t)u8g2_GetStrWidth(canvas->u8g2, str); }
+uint8_t canvas_string_width(Canvas* canvas, const char* str) {
+    ABORT_IF(!canvas);
+    return (uint8_t)u8g2_GetStrWidth(canvas->u8g2, str);
+}
 
 uint8_t canvas_font_ascent(Canvas* canvas) {
     ABORT_IF(!canvas);

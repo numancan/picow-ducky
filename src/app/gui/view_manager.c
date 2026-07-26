@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 #include "hal/hal.h"
-#include "input.h"
+#include "middleware/input.h"
 #include "middleware/sys_fault.h"
 
 void view_manager_init(ViewManager* vm, u8g2_t* u8g2) {
@@ -22,7 +22,7 @@ void view_manager_add_view(ViewManager* vm, uint32_t id, View* view) {
     vm->views[id] = view;
 }
 
-/* current view = stack top, ya da yığın boşsa NULL */
+/* Current view = stack top, or NULL if the stack is empty. */
 static View* view_manager_current(ViewManager* vm) {
     if (vm->depth == 0) return NULL;
     return vm->views[vm->stack[vm->depth - 1]];
@@ -110,7 +110,7 @@ void view_manager_reset(ViewManager* vm, uint32_t id) {
 void view_manager_replace(ViewManager* vm, uint32_t id) {
     ABORT_IF(id >= VIEW_ID_COUNT);
     ABORT_IF(vm->views[id] == NULL);
-    ABORT_IF(vm->depth == 0); /* ilk view için push kullan */
+    ABORT_IF(vm->depth == 0); /* use push for the first view */
 
     View* old = view_manager_current(vm);
     if (old && old->on_exit) old->on_exit(old->context);
@@ -133,13 +133,13 @@ void view_manager_pop_to(ViewManager* vm, uint32_t id) {
             break;
         }
     }
-    ABORT_IF(target < 0);                     /* id stack'te yok */
-    if (target == (int)vm->depth - 1) return; /* zaten tepede */
+    ABORT_IF(target < 0);                     /* id not on the stack */
+    if (target == (int)vm->depth - 1) return; /* already on top */
 
     View* old = view_manager_current(vm);
     if (old && old->on_exit) old->on_exit(old->context);
 
-    vm->depth = (uint8_t)(target + 1); /* id tepe olacak şekilde kes */
+    vm->depth = (uint8_t)(target + 1); /* cut the stack so id ends up on top */
 
     View* next = vm->views[id];
     if (next->on_enter) next->on_enter(next->context);
@@ -149,3 +149,10 @@ void view_manager_pop_to(ViewManager* vm, uint32_t id) {
 
 bool view_manager_needs_redraw(ViewManager* vm) { return vm->needs_redraw; }
 void view_manager_request_redraw(ViewManager* vm) { vm->needs_redraw = true; }
+
+bool view_manager_stack_contains(ViewManager* vm, uint32_t id) {
+    for (uint32_t i = 0; i < vm->depth; i++) {
+        if (vm->stack[i] == id) return true;
+    }
+    return false;
+}

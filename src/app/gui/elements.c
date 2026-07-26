@@ -37,10 +37,10 @@ void elements_draw_list(Canvas* canvas, uint8_t y_top, uint8_t height, uint16_t 
     uint16_t window = (selected < visible) ? 0 : (selected - visible + 1);
 
     for (uint16_t row = 0; row < visible; row++) {
-        uint16_t idx = window + row;
-        if (idx >= count) break;
+        uint16_t index = window + row;
+        if (index >= count) break;
 
-        elements_draw_list_row(canvas, y_top, row, idx == selected, get_label(context, idx));
+        elements_draw_list_row(canvas, y_top, row, index == selected, get_label(context, index));
     }
 
     elements_scrollbar(canvas, y_top, window, visible, count);
@@ -65,6 +65,8 @@ void elements_scrollbar(Canvas* canvas, uint8_t y_top, uint16_t pos, uint16_t vi
 }
 
 void elements_draw_str_right(Canvas* canvas, uint8_t y, const char* str) {
+    ABORT_IF(canvas == NULL || str == NULL);
+
     uint8_t w = canvas_string_width(canvas, str);
     uint8_t right = CANVAS_WIDTH - ELEMENTS_SCROLLBAR_WIDTH - 1;
     uint8_t x = (w >= right) ? 0 : (uint8_t)(right - w);

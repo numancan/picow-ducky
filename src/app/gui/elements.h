@@ -29,5 +29,6 @@ void elements_draw_list_row(Canvas* canvas, uint8_t y_top, uint16_t row, bool se
 // Vertical scrollbar on the right edge of the content area starting at y_top.
 // pos = top visible row, visible = rows on screen, total = total row count.
 void elements_scrollbar(Canvas* canvas, uint8_t y_top, uint16_t pos, uint16_t visible, uint16_t total);
+
 // Right-aligned string drawn on the given list row (0-based, measured from y_top).
 void elements_draw_str_right(Canvas* canvas, uint8_t y, const char* str);
