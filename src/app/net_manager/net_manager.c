@@ -26,7 +26,8 @@
 
 #define NET_QUEUE_LEN 8
 
-#define CONNECT_TIMEOUT_MS 20000
+#define CONNECT_TIMEOUT_MS 16000
+#define CONNECT_NONET_RETRY_MS 2000 /* re-issue the join at most this often on NONET */
 #define CONNECT_MAX_ATTEMPTS 5u
 #define POLL_PERIOD_MS 500
 
@@ -135,6 +136,7 @@ static bool do_connect(const char* ssid, const char* pass) {
         }
 
         TickType_t start = xTaskGetTickCount();
+        TickType_t last_join = start;
         while ((TickType_t)(xTaskGetTickCount() - start) < pdMS_TO_TICKS(CONNECT_TIMEOUT_MS)) {
             vTaskDelay(pdMS_TO_TICKS(POLL_PERIOD_MS));
 
@@ -154,10 +156,14 @@ static bool do_connect(const char* ssid, const char* pass) {
                 return false; /* permanent, no retry */
             }
             if (status == CYW43_LINK_NONET) {
-                LOG_INFO(TAG, "Reconnecting to \"%s\" (NOIP detected)", ssid);
-                /* Mirrors cyw43_arch_wifi_connect_bssid_until(): re-issue
-                   the join; the per-attempt timeout keeps running. */
-                radio_sta_connect_async(ssid, pass);
+                /* AP not visible on this scan; it may still appear (out of
+                   range / powering up). Re-issue the join, but throttle so we
+                   don't hammer the driver every poll. */
+                if ((TickType_t)(xTaskGetTickCount() - last_join) >= pdMS_TO_TICKS(CONNECT_NONET_RETRY_MS)) {
+                    LOG_INFO(TAG, "\"%s\" not found, retrying join", ssid);
+                    radio_sta_connect_async(ssid, pass);
+                    last_join = xTaskGetTickCount();
+                }
             } else if (status < 0) {
                 /* FAIL etc.: final for this attempt, don't wait out the
                    window. */
