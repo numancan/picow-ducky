@@ -106,14 +106,6 @@
             rows.innerHTML = html;
         }
 
-        function setStatus(txt, err) {
-            var s = document.getElementById('status');
-            var dot = document.getElementById('status-dot');
-            s.textContent = txt;
-            s.className = err ? 'err' : '';
-            dot.className = 'dot ' + (err ? 'dot-stopped' : 'dot-online');
-        }
-
         function refresh() {
             if (mode !== 'scan') return;
             fetch('/api/portal/scan.shtml', { cache: 'no-store' })
@@ -124,11 +116,8 @@
                 .then(function (list) {
                     if (mode !== 'scan') return;
                     render(list);
-                    setStatus('live · ' + new Date().toLocaleTimeString());
                 })
-                .catch(function () {
-                    setStatus('offline · showing last known list', true);
-                });
+                .catch(function () { });
         }
 
         function showConn(html) {
@@ -147,7 +136,6 @@
             mode = 'scan';
             stopStatusPoll();
             document.getElementById('conn').classList.add('hidden');
-            setStatus('waiting for scan…');
             refresh();
             if (!scanTimer) scanTimer = setInterval(refresh, REFRESH_MS);
         }
@@ -209,7 +197,6 @@
             sawConnected = false;
             sawConnecting = false;
             if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
-            setStatus('connecting…');
             showConn('<div class="status-panel">' +
                 '<div class="status-label">CONNECTING</div>' +
                 '<div class="status-payload-name">' + esc(ssid) + '</div>' +
@@ -266,7 +253,6 @@
             }
         });
 
-        setStatus('waiting for scan…');
         refresh();
         scanTimer = setInterval(refresh, REFRESH_MS);
     </script>
