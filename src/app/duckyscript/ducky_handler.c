@@ -69,6 +69,18 @@ static bool handle_key_combo(DuckyLine* ducky_line, HidStatus* status) {
     return true;
 }
 
+static HidStatus type_string(const char* text, bool press_enter) {
+    uint32_t char_delay = get_delay_ms(default_char_delay, default_char_delay_fuzz);
+    HidStatus status = hid_report_string(text, char_delay);
+
+    if (status == HID_STATUS_OK && press_enter) {
+        uint8_t keycodes[6] = {hid_report_str_to_special("ENTER"), 0, 0, 0, 0, 0};
+        status = hid_report_keys(0, keycodes);
+    }
+
+    return status;
+}
+
 static DuckyCommandID get_ducky_command_id(const char* command_str) {
 #define X(id, str) \
     if (strcmp(command_str, str) == 0) return id;
@@ -118,8 +130,12 @@ bool ducky_handler_exec_line(DuckyLine* ducky_line) {
             return true;
         }
         case STRING: {
-            uint32_t char_delay = get_delay_ms(default_char_delay, default_char_delay_fuzz);
-            HidStatus st = hid_report_string(ducky_line->args, char_delay);
+            HidStatus st = type_string(ducky_line->args, false);
+            vTaskDelay(pdMS_TO_TICKS(get_delay_ms(default_delay, default_delay_fuzz)));
+            return st == HID_STATUS_OK;
+        }
+        case STRINGLN: {
+            HidStatus st = type_string(ducky_line->args, true);
             vTaskDelay(pdMS_TO_TICKS(get_delay_ms(default_delay, default_delay_fuzz)));
             return st == HID_STATUS_OK;
         }

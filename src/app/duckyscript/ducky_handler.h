@@ -16,6 +16,7 @@
     X(DEFAULTCHARDELAY, "DEFAULTCHARDELAY")         \
     X(DEFAULTCHARDELAYFUZZ, "DEFAULTCHARDELAYFUZZ") \
     X(STRING, "STRING")                             \
+    X(STRINGLN, "STRINGLN")                         \
     X(LAYOUT, "LAYOUT")                             \
     X(MOUSE_MOVE, "MOUSE_MOVE")                     \
     X(MOUSE_CLICK, "MOUSE_CLICK")                   \
